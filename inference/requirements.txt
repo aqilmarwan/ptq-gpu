@@ -1,0 +1,7 @@
+# Core API plane — enough to run the service in demo mode (no GPU, no models).
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30
+pydantic>=2.7
+pyyaml>=6.0
+pillow>=10.3
+numpy>=1.26,<2.3
