@@ -1,0 +1,39 @@
+# syntax=docker/dockerfile:1
+#
+# Next.js standalone image. Build context is the REPO ROOT:
+#   docker build -f docker/Dockerfile.web \
+#     --build-arg NEXT_PUBLIC_API_URL=https://api.example.com \
+#     -t <repo>/quantstudio-web:tag .
+#
+# NEXT_PUBLIC_API_URL is inlined into the client bundle at BUILD time, so it must
+# be the browser-reachable inference URL (the EKS LoadBalancer / Ingress host).
+
+FROM node:20-alpine AS base
+RUN corepack enable
+WORKDIR /app
+
+# ---- deps ----
+FROM base AS deps
+COPY web/package.json web/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+# ---- build ----
+FROM base AS build
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+    NEXT_TELEMETRY_DISABLED=1
+COPY --from=deps /app/node_modules ./node_modules
+COPY web/ ./
+RUN pnpm build
+
+# ---- runner ----
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
+RUN addgroup -S nodejs && adduser -S nextjs -G nodejs
+COPY --from=build /app/public ./public
+COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
+USER nextjs
+EXPOSE 3000
+CMD ["node", "server.js"]
