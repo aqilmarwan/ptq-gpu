@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inference
+  namespace: quant-studio
+  labels: { app: inference }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: inference }
+  template:
+    metadata:
+      labels: { app: inference }
+    spec:
+      # schedule onto the GPU node group (label set in eksctl-cluster.yaml)
+      nodeSelector:
+        role: gpu
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: inference
+          # CI overrides the tag via `kubectl set image`; :latest is the manual fallback.
+          image: docker.io/DOCKERHUB_USERNAME/quantstudio-inference:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: STUDIO_CORS_ORIGINS
+              value: "*"            # tighten to the web LoadBalancer URL in prod
+          resources:
+            requests:
+              cpu: "2"
+              memory: 8Gi
+            limits:
+              nvidia.com/gpu: "1"   # one A10G per pod
+              memory: 22Gi
+          # model weights cache (lazy download on first request)
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+          startupProbe:            # generous: torch + CUDA init on boot
+            httpGet: { path: /healthz, port: 8000 }
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8000 }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8000 }
+            periodSeconds: 20
+      volumes:
+        - name: model-cache
+          emptyDir:
+            sizeLimit: 60Gi
