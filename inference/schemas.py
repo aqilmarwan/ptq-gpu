@@ -1,8 +1,8 @@
 """API request/response models.
 
 Field names are emitted in **camelCase** to match the frontend contract in
-`web/lib/types.ts` exactly. We keep snake_case in Python and let an alias
-generator handle the wire format, accepting either casing on input.
+`web/lib/types.ts` exactly. A camelCase alias generator handles most fields; the
+``*GB`` fields get explicit aliases because the frontend uppercases "GB".
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ class _Camel(BaseModel):
 
 
 class Variant(_Camel):
-    """One entry of GET /variants — display + benchmarked registry metrics."""
+    """One entry of GET /variants -- display + benchmarked registry metrics."""
 
     id: str
     label: str
@@ -29,8 +29,8 @@ class Variant(_Camel):
     style: Style
     base: str
     lora_name: Optional[str] = None
-    size_gb: float
-    vram_gb: float
+    size_gb: float = Field(alias="sizeGB")
+    vram_gb: float = Field(alias="vramGB")
     steps_per_sec: float
     quality: int
     default_steps: int
@@ -62,7 +62,7 @@ class Metrics(_Camel):
     cold: bool
     latency_ms: LatencyBreakdown
     throughput_steps_per_sec: float
-    vram_peak_gb: float
+    vram_peak_gb: float = Field(alias="vramPeakGB")
 
 
 class GenerationResult(_Camel):
