@@ -1,0 +1,97 @@
+# Servable SDXL 1.0 variants (precision x style).
+#
+#   serving:   how pipelines.py loads the variant (quantisation, LoRA).
+#   registry:  the benchmarked metrics surfaced by GET /variants. In production
+#              the Metaflow build flow writes these into the MLflow registry and
+#              syncs them here -- but every live request still measures its OWN
+#              latency / VRAM / throughput honestly around the real denoise loop.
+#
+# Adding a variant is a config edit: append a block and restart.
+
+base_model: stabilityai/stable-diffusion-xl-base-1.0
+
+# LRU VRAM budget -- how many pipelines stay hot in VRAM at once. Loading an
+# (N+1)th evicts the least-recently-used one. Tune to your card.
+max_resident: 2
+
+variants:
+  - id: fp16-base
+    label: "FP16 - Base"
+    precision: FP16
+    style: Base
+    blurb: "Reference quality. The baseline every variant is measured against."
+    licence: "CreativeML OpenRAIL++-M"
+    serving:
+      quant: none
+    registry:
+      sizeGB: 13.0
+      vramGB: 18.4
+      stepsPerSec: 6.1
+      quality: 98
+      defaultSteps: 30
+
+  - id: int8-base
+    label: "INT8 - Base"
+    precision: INT8
+    style: Base
+    blurb: "optimum-quanto weight-only INT8. Near-FP16 quality, ~45% lighter."
+    licence: "CreativeML OpenRAIL++-M"
+    serving:
+      quant: int8
+    registry:
+      sizeGB: 7.1
+      vramGB: 11.2
+      stepsPerSec: 9.4
+      quality: 95
+      defaultSteps: 30
+
+  - id: int4-base
+    label: "INT4 - Base"
+    precision: INT4
+    style: Base
+    blurb: "NF4 double-quant. Fits comfortably, fastest base."
+    licence: "CreativeML OpenRAIL++-M"
+    serving:
+      quant: nf4
+    registry:
+      sizeGB: 4.3
+      vramGB: 7.6
+      stepsPerSec: 12.8
+      quality: 90
+      defaultSteps: 28
+
+  - id: fp16-lora
+    label: "FP16 - LoRA"
+    precision: FP16
+    style: LoRA
+    loraName: "Neon Atlas"
+    blurb: "Custom DreamBooth-LoRA on FP16 base. Signature look, full fidelity."
+    licence: "OpenRAIL++-M + LoRA (CC-BY)"
+    serving:
+      quant: none
+      lora: loras/neon-atlas.safetensors
+      lora_scale: 0.8
+    registry:
+      sizeGB: 13.2
+      vramGB: 18.7
+      stepsPerSec: 5.9
+      quality: 97
+      defaultSteps: 30
+
+  - id: int4-lora
+    label: "INT4 - LoRA"
+    precision: INT4
+    style: LoRA
+    loraName: "Neon Atlas"
+    blurb: "The LoRA style, quantised. The cheapest way to ship the brand look."
+    licence: "OpenRAIL++-M + LoRA (CC-BY)"
+    serving:
+      quant: nf4
+      lora: loras/neon-atlas.safetensors
+      lora_scale: 0.8
+    registry:
+      sizeGB: 4.5
+      vramGB: 7.9
+      stepsPerSec: 12.2
+      quality: 88
+      defaultSteps: 28
