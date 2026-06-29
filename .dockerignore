@@ -1,0 +1,14 @@
+**/node_modules
+**/.next
+**/__pycache__
+**/.venv
+**/.git
+**/.env
+**/.env.local
+web/.next
+reports
+results
+benchmark
+register
+mode
+**/*.safetensors
