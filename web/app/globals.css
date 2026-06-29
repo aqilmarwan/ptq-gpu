@@ -1,0 +1,162 @@
+@import "tailwindcss";
+
+/* ----------------------------------------------------------------------------
+   Inference Lab — design system
+   Dark, technical, premium. Violet→cyan generation accent.
+   Precision is color-coded so the speed↔quality tradeoff reads at a glance.
+---------------------------------------------------------------------------- */
+
+@theme {
+  /* surfaces */
+  --color-ink: #07070b;
+  --color-ink-2: #0b0b12;
+  --color-panel: #0f0f18;
+  --color-panel-2: #14141f;
+  --color-line: #ffffff14;
+  --color-line-strong: #ffffff26;
+
+  /* text */
+  --color-fg: #ecedf4;
+  --color-muted: #9a9ab2;
+  --color-faint: #62627a;
+
+  /* brand / generation accent */
+  --color-violet: #8b5cf6;
+  --color-cyan: #22d3ee;
+
+  /* precision palette (the headline) */
+  --color-fp16: #38bdf8; /* sky  — full quality, slowest */
+  --color-int8: #a78bfa; /* violet — balanced */
+  --color-int4: #34d399; /* emerald — fastest, lightest */
+
+  /* status */
+  --color-good: #34d399;
+  --color-warn: #fbbf24;
+  --color-bad: #f87171;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    background: var(--color-ink);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--color-violet) 40%, transparent);
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+    border-radius: 999px;
+  }
+}
+
+@layer components {
+  /* ambient page backdrop: faint grid + two brand glows */
+  .app-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background:
+      radial-gradient(60rem 40rem at 12% -8%, color-mix(in oklab, var(--color-violet) 16%, transparent), transparent 60%),
+      radial-gradient(50rem 36rem at 92% 4%, color-mix(in oklab, var(--color-cyan) 12%, transparent), transparent 55%),
+      var(--color-ink);
+  }
+  .app-backdrop::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(to right, #ffffff08 1px, transparent 1px),
+      linear-gradient(to bottom, #ffffff08 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(circle at 50% 0%, black, transparent 78%);
+    opacity: 0.6;
+  }
+
+  .glass {
+    background: linear-gradient(180deg, #ffffff0a, #ffffff04);
+    border: 1px solid var(--color-line);
+    backdrop-filter: blur(12px);
+  }
+
+  .card {
+    background: linear-gradient(180deg, color-mix(in oklab, var(--color-panel) 92%, #fff 2%), var(--color-panel));
+    border: 1px solid var(--color-line);
+    border-radius: 1.25rem;
+  }
+
+  .text-grad {
+    background: linear-gradient(100deg, var(--color-violet), var(--color-cyan));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .btn-glow {
+    background: linear-gradient(100deg, var(--color-violet), var(--color-cyan));
+    box-shadow:
+      0 0 0 1px #ffffff20 inset,
+      0 10px 40px -12px color-mix(in oklab, var(--color-violet) 80%, transparent);
+  }
+  .btn-glow:hover:not(:disabled) {
+    box-shadow:
+      0 0 0 1px #ffffff30 inset,
+      0 14px 48px -10px color-mix(in oklab, var(--color-cyan) 70%, transparent);
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono);
+  }
+}
+
+/* ---------------------------------------------------------------- keyframes */
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+.animate-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.animate-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, #ffffff12, transparent);
+  animation: shimmer 1.6s infinite;
+}
+
+@keyframes float-y {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+.animate-float { animation: float-y 6s ease-in-out infinite; }
+
+@keyframes spin-slow { to { transform: rotate(360deg); } }
+.animate-spin-slow { animation: spin-slow 8s linear infinite; }
+
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-violet) 50%, transparent); }
+  70% { box-shadow: 0 0 0 12px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.animate-pulse-ring { animation: pulse-ring 2s ease-out infinite; }
