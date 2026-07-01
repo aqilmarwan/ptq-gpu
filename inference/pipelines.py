@@ -361,6 +361,9 @@ class Registry:
         variant = self._by_id[params.variant_id]
         serving = self._serving[variant.id]
         out = self.backend.generate(variant, serving, params, emit)
+        
+        buf = io.BytesIO()
+        out.save(buf, format='PNG')    
         return GenerationResult(
             image_url=out.image_url,
             variant_id=variant.id,
