@@ -1,0 +1,49 @@
+# GPU EKS cluster for the inference service.
+#   eksctl create cluster -f infra/eksctl-cluster.yaml
+#
+# g5.xlarge = 1x NVIDIA A10G (24GB) -- fits SDXL FP16/INT8/INT4 on one card.
+# eksctl auto-installs the NVIDIA device plugin for GPU node groups, so
+# `nvidia.com/gpu` becomes schedulable without extra steps.
+#
+# TEAR DOWN WHEN DONE (this is the expensive part):
+#   eksctl delete cluster -f infra/eksctl-cluster.yaml --wait
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: quant-studio
+  region: ap-southeast-1  # Singapore not KL
+  version: "1.30"
+
+iam:
+  withOIDC: true
+
+managedNodeGroups:
+  # Cheap on-demand CPU node for the web app + system pods.
+  - name: cpu-general
+    instanceType: t3.large
+    desiredCapacity: 1
+    minSize: 1
+    maxSize: 2
+    volumeSize: 40
+    labels:
+      role: general
+
+  # GPU node group for inference. maxSize 3 lets the HPA + new nodes scale out.
+  - name: gpu-a10g
+    instanceType: g5.xlarge
+    desiredCapacity: 1
+    minSize: 1
+    maxSize: 3
+    volumeSize: 120
+    amiFamily: AmazonLinux2
+    labels:
+      role: gpu
+    tags:
+      nvidia.com/gpu: "true"
+    # Uncomment to reserve GPU nodes for GPU workloads only (pods then need the
+    # matching toleration, which the inference Deployment already declares):
+    # taints:
+    #   - key: nvidia.com/gpu
+    #     value: "true"
+    #     effect: NoSchedule

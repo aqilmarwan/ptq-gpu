@@ -1,0 +1,144 @@
+name: ci-cd
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  INFER_IMAGE: quantstudio-inference
+  WEB_IMAGE: quantstudio-web
+  AWS_REGION: ap-southeast-1
+  EKS_CLUSTER: quant-studio
+  K8S_NAMESPACE: quant-studio
+
+jobs:
+  # ----------------------------------------------------------------- tests --
+  test-web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+
+  test-inference:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: inference
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt httpx
+      - name: Contract smoke test (demo plane)
+        run: STUDIO_DEMO=1 python smoke_test.py
+
+  # -------------------------------------------------- build + push images ---
+  build-push:
+    needs: [test-web, test-inference]
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # the CUDA inference image is large; reclaim runner disk first
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/boost
+          docker image prune -af || true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build & push inference (gpu target)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.inference
+          target: gpu
+          push: true
+          tags: |
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.INFER_IMAGE }}:${{ github.sha }}
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.INFER_IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.web
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
+          tags: |
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.WEB_IMAGE }}:${{ github.sha }}
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.WEB_IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ------------------------------------------------------- deploy to EKS ----
+  # Runs only when you set repo variable DEPLOY_ENABLED=true and the AWS_ROLE_ARN
+  # secret. Registry stays on Docker Hub; AWS creds are only for kubectl access.
+  deploy:
+    needs: build-push
+    if: ${{ vars.DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # AWS OIDC
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER" --region "$AWS_REGION"
+
+      - name: Apply manifests
+        run: kubectl apply -f infra/k8s/
+
+      - name: Roll out new images
+        run: |
+          REPO="docker.io/${{ secrets.DOCKERHUB_USERNAME }}"
+          kubectl -n "$K8S_NAMESPACE" set image deployment/inference \
+            inference="$REPO/$INFER_IMAGE:${{ github.sha }}"
+          kubectl -n "$K8S_NAMESPACE" set image deployment/web \
+            web="$REPO/$WEB_IMAGE:${{ github.sha }}"
+          kubectl -n "$K8S_NAMESPACE" rollout status deployment/inference --timeout=600s
+          kubectl -n "$K8S_NAMESPACE" rollout status deployment/web --timeout=300s
+
+      - name: Show cluster state
+        run: kubectl -n "$K8S_NAMESPACE" get svc,hpa,deploy,pods -o wide
