@@ -166,9 +166,6 @@ function EmptyState() {
         <div className="animate-float grid h-16 w-16 place-items-center rounded-2xl border border-line bg-ink-2/60">
           <ImageIcon className="h-7 w-7 text-faint" strokeWidth={1.5} />
         </div>
-        <p className="max-w-[16rem] text-[13px] text-faint">
-          Your render appears here, with the latency it actually cost.
-        </p>
       </div>
     </motion.div>
   );
