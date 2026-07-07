@@ -13,8 +13,8 @@ import { MetricsPanel } from "./MetricsPanel";
 import { VariantSelect } from "./VariantSelect";
 import { Slider } from "./Slider";
 
-const ACCENT_A = "var(--color-violet)";
-const ACCENT_B = "var(--color-cyan)";
+const ACCENT_A = "var(--color-accent)";
+const ACCENT_B = "var(--color-fp16)";
 
 export function Compare() {
   const [variants, setVariants] = useState<Variant[]>(MOCK_VARIANTS);
@@ -112,7 +112,7 @@ export function Compare() {
                 onClick={() => setLockSeed((l) => !l)}
                 className={cn(
                   "grid h-9 w-9 shrink-0 place-items-center rounded-lg border transition-colors",
-                  lockSeed ? "border-violet/50 bg-violet/10 text-violet" : "border-line text-muted hover:text-fg",
+                  lockSeed ? "border-accent/50 bg-accent/10 text-accent" : "border-line text-muted hover:text-fg",
                 )}
               >
                 {lockSeed ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
