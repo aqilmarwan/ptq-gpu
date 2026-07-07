@@ -87,7 +87,7 @@ export function GenerationCanvas({
         <div className="absolute inset-x-0 bottom-0 h-1 bg-white/5">
           <motion.div
             className="h-full"
-            style={{ background: "linear-gradient(90deg, var(--color-violet), var(--color-cyan))" }}
+            style={{ background: "linear-gradient(90deg, var(--color-accent-2), var(--color-accent))" }}
             animate={{ width: `${Math.round(progress * 100)}%` }}
             transition={{ ease: "linear", duration: 0.1 }}
           />
@@ -130,8 +130,8 @@ function ProgressRing({
           />
           <defs>
             <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="var(--color-violet)" />
-              <stop offset="100%" stopColor="var(--color-cyan)" />
+              <stop offset="0%" stopColor="var(--color-accent-2)" />
+              <stop offset="100%" stopColor="var(--color-accent)" />
             </linearGradient>
           </defs>
         </svg>
@@ -142,7 +142,7 @@ function ProgressRing({
               <div className="tabular text-[10px] text-faint">/ {total}</div>
             </div>
           ) : (
-            <Loader2 className="h-5 w-5 animate-spin text-cyan" />
+            <Loader2 className="h-5 w-5 animate-spin text-accent" />
           )}
         </div>
       </div>

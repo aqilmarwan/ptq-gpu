@@ -21,7 +21,7 @@ export function MetricsPanel({ metrics, compact = false }: { metrics: Metrics; c
           icon={Timer}
           label="latency"
           value={fmtMs(latencyMs.total)}
-          tint="var(--color-cyan)"
+          tint="var(--color-accent)"
         />
         <Stat
           icon={Gauge}

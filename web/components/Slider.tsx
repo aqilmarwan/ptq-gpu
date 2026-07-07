@@ -2,7 +2,7 @@
 
 import { clamp } from "@/lib/utils";
 
-/** Compact labelled slider with a violet→cyan fill. */
+/** Compact labelled slider with a dark-green accent fill. */
 export function Slider({
   label,
   value,
@@ -42,7 +42,7 @@ export function Slider({
         onChange={(e) => onChange(Number(e.target.value))}
         className="slider-input h-1.5 w-full cursor-pointer appearance-none rounded-full disabled:opacity-40"
         style={{
-          background: `linear-gradient(to right, var(--color-violet), var(--color-cyan) ${pctFill}%, var(--color-line-strong) ${pctFill}%)`,
+          background: `linear-gradient(to right, var(--color-accent-2), var(--color-accent) ${pctFill}%, var(--color-line-strong) ${pctFill}%)`,
         }}
       />
       <style jsx>{`
@@ -52,11 +52,11 @@ export function Slider({
           width: 14px;
           border-radius: 999px;
           background: #fff;
-          box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-violet) 45%, transparent);
+          box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-accent) 45%, transparent);
           transition: box-shadow 0.15s;
         }
         .slider-input::-webkit-slider-thumb:hover {
-          box-shadow: 0 0 0 5px color-mix(in oklab, var(--color-cyan) 45%, transparent);
+          box-shadow: 0 0 0 5px color-mix(in oklab, var(--color-accent) 55%, transparent);
         }
         .slider-input::-moz-range-thumb {
           height: 14px;
@@ -64,7 +64,7 @@ export function Slider({
           border: none;
           border-radius: 999px;
           background: #fff;
-          box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-violet) 45%, transparent);
+          box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-accent) 45%, transparent);
         }
       `}</style>
     </div>

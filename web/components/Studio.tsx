@@ -345,7 +345,7 @@ function IconBtn({
       disabled={disabled}
       className={cn(
         "grid h-8 w-8 shrink-0 place-items-center rounded-lg border transition-colors disabled:opacity-40",
-        active ? "border-violet/50 bg-violet/10 text-violet" : "border-line text-muted hover:border-line-strong hover:text-fg",
+        active ? "border-accent/50 bg-accent/10 text-accent" : "border-line text-muted hover:border-line-strong hover:text-fg",
       )}
     >
       {children}
