@@ -10,3 +10,6 @@ venv/
 mlruns/
 mlflow.db
 pipelines/out/
+
+# LoRA training instance images (bring your own)
+pipelines/data/
