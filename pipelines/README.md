@@ -33,6 +33,12 @@ python pipelines/build_flow.py run --trials 5 --sync
 - MLflow experiment `ptq-gpu/sdxl-quant` — one parent run per build, one nested
   run per variant.
 
-> Quality (CLIP/aesthetic) scoring is not yet wired; the flow carries the catalog
-> baseline for `quality` rather than emitting an unmeasured number. Size, VRAM,
-> and throughput are measured.
+## What's measured (real plane)
+
+- **size / VRAM / throughput** — measured around a real denoise loop.
+- **quality** — a CLIP image-text score over a fixed prompt set, normalised
+  against `fp16-base` so it reads as *fidelity retained vs FP16* (FP16 ≈ 100).
+- **LoRAs** — the `train` step trains adapters declared in `loras.yaml` into
+  `inference/loras/` before benchmarking (real plane only; `--demo` skips it).
+
+The `--demo` plane simulates all of the above from the catalog baseline.
