@@ -1,0 +1,8 @@
+# Offline build/benchmark pipeline. Install on the build box, NOT in the
+# inference image. The real plane also needs inference/requirements-gpu.txt
+# (torch + diffusers + optimum-quanto) for actual builds; --demo needs neither.
+metaflow>=2.12
+ray>=2.9
+mlflow>=2.14
+ruamel.yaml>=0.18
+pyyaml>=6.0
