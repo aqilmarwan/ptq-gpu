@@ -21,8 +21,9 @@ spec:
           effect: NoSchedule
       containers:
         - name: inference
-          # CI overrides the tag via `kubectl set image`; :latest is the manual fallback.
-          image: docker.io/DOCKERHUB_USERNAME/quantstudio-inference:latest
+          # CI overrides this with the ECR image via `kubectl set image`
+          # (see .github/workflows/ci.yml); :latest is the manual fallback.
+          image: ECR_REGISTRY/quantstudio-inference:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
