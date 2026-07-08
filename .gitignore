@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Build/benchmark pipeline run artifacts (Metaflow / Ray / MLflow)
+.metaflow/
+mlruns/
+mlflow.db
+pipelines/out/
