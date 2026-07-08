@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 #
 # Two build targets:
-    --target demo -> slim CPU image (no torch). For local/compose. Multi-arch.
-    --target gpu -> CUDA image with the real diffusers stack. For EKS GPU nodes.
+#    --target demo -> slim CPU image (no torch). For local/compose. Multi-arch.
+#    --target gpu -> CUDA image with the real diffusers stack. For EKS GPU nodes.
 #
 # Build context is the REPO ROOT:
 #    docker build -f docker/Dockerfile.inference --target gpu -t <repo>/quantstudio-inference:tag .
@@ -17,7 +17,7 @@ COPY inference/ ./
 EXPOSE 8000 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
-# ---------------------------------------------- demo (GPU) --------
+# ---------------------------------------------- real (GPU) --------
 FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 AS gpu
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
       HF_HOME=/models/hf
@@ -34,9 +34,3 @@ COPY inference/ ./
 EXPOSE 8000
 # weights download lazily on first request and cache in /models (mount a volume)
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-DOCKEREOF
-echo "Dockerfile.inference: $(wc -l < docker/Dockerfile.inference) lines")
-    Dockerfile.inference:
-
-
-
