@@ -18,8 +18,8 @@ spec:
         - name: web
           # NEXT_PUBLIC_API_URL is baked at build time (see Dockerfile.web), so the
           # image must be built with the inference LoadBalancer URL. CI overrides
-          # the tag via `kubectl set image`.
-          image: docker.io/DOCKERHUB_USERNAME/quantstudio-web:latest
+          # this with the ECR image via `kubectl set image`.
+          image: ECR_REGISTRY/quantstudio-web:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
