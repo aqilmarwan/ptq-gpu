@@ -5,7 +5,9 @@ metadata:
   namespace: quant-studio
   labels: { app: web }
 spec:
-  type: LoadBalancer
+  # ClusterIP: fronted by the shared ALB (infra/k8s/ingress.yaml), which
+  # terminates TLS and routes the apex domain here.
+  type: ClusterIP
   selector: { app: web }
   ports:
     - name: http
