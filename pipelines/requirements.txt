@@ -6,3 +6,7 @@ ray>=2.9
 mlflow>=2.14
 ruamel.yaml>=0.18
 pyyaml>=6.0
+
+# LoRA training (real plane, train_lora.py). Pair torchvision with your torch build.
+peft>=0.11
+torchvision>=0.19
