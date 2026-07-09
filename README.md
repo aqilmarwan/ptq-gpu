@@ -2,6 +2,7 @@
 
 ## File Directory Structure
 
+```text
 ptq-gpu/
 ├── README.md                # vision, screenshots, quant tradeoff table, how to run, cost notes
 ├── web/                     # Next.js app (studio page + compare page)
@@ -21,3 +22,5 @@ ptq-gpu/
 │   └── k8s/                 # deployments, services, HPA, ALB ingress (TLS)
 ├── .github/workflows/ci.yml # test → build → push ECR → deploy EKS
 └── docker/                  # Dockerfile.web, Dockerfile.inference, compose (local mode)
+```
+
