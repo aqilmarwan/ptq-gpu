@@ -5,12 +5,12 @@
 #
 # Two managed node groups, matched to what infra/k8s expects:
 #   * general (role=general) -- cheap CPU nodes for the web Deployment.
-#   * gpu-a10g (role=gpu)     -- A10G nodes, tainted so ONLY the inference pods
+#   * gpu-l40s (role=gpu)     -- L40S nodes, tainted so ONLY the inference pods
 #                               (which tolerate nvidia.com/gpu) land on them.
 #
-# The gpu-a10g maxSize (3) is the ceiling the inference HPA scales into
-# (infra/k8s/inference-hpa.yaml: maxReplicas 3). g5.2xlarge = 1x A10G (24GB),
-# 8 vCPU, 32Gi RAM -- fits the inference pod's 22Gi memory limit + 1 GPU.
+# The gpu-l40s maxSize (3) is the ceiling the inference HPA scales into
+# (infra/k8s/inference-hpa.yaml: maxReplicas 3). g6e.2xlarge = 1x L40S (48GB),
+# 8 vCPU, 64Gi RAM -- FP8-capable, fits the inference pod's 30Gi limit + 1 GPU.
 
 apiVersion: eksctl.io/v1alpha5
 kind: ClusterConfig
@@ -38,6 +38,18 @@ iam:
         namespace: kube-system
       wellKnownPolicies:
         autoScaler: true
+    # Inference pods read prebuilt TensorRT engine bundles from S3 (init container).
+    - metadata:
+        name: inference
+        namespace: quant-studio
+      attachPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: ["s3:GetObject", "s3:ListBucket"]
+            Resource:
+              - "arn:aws:s3:::REPLACE_ME-ptq-gpu-engines"
+              - "arn:aws:s3:::REPLACE_ME-ptq-gpu-engines/*"
 
 # The cluster autoscaler and NVIDIA device plugin need these; eksctl also
 # auto-installs the device plugin when it sees GPU instances in a node group.
@@ -62,12 +74,14 @@ managedNodeGroups:
       k8s.io/cluster-autoscaler/quant-studio: "owned"
 
   # ---- GPU nodes (inference) ---------------------------------------------
-  - name: gpu-a10g
-    instanceType: g5.2xlarge      # 1x NVIDIA A10G (24GB), 8 vCPU, 32Gi
+  # L40S (Ada) is FP8-capable, which the fp8-* variants require; A10G (Ampere)
+  # is not. Swap to g5.2xlarge only if you drop the FP8 variants.
+  - name: gpu-l40s
+    instanceType: g6e.2xlarge     # 1x NVIDIA L40S (48GB), 8 vCPU, 64Gi -- FP8 capable
     minSize: 1
     maxSize: 3                     # == inference HPA maxReplicas
     desiredCapacity: 1
-    volumeSize: 120               # room for the SDXL weight cache (emptyDir)
+    volumeSize: 120               # room for the TensorRT engine bundles (emptyDir)
     amiFamily: AmazonLinux2       # GPU-optimised AMI + NVIDIA drivers selected automatically
     labels:
       role: gpu
