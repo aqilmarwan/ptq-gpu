@@ -1,0 +1,16 @@
+# LoRAs trained by the build flow's `train` step. Each entry produces one
+# safetensors file under inference/loras/, referenced by variants.yaml
+# (serving.lora). Training runs only on the real plane; --demo skips it.
+#
+# `data_dir` holds the instance images (a handful is enough for DreamBooth-LoRA);
+# `instance_prompt` is the caption every image is trained against.
+
+loras:
+  - name: neon-atlas
+    output: neon-atlas.safetensors        # -> inference/loras/neon-atlas.safetensors
+    instance_prompt: "a photo in nen-atlas neon cartography style"
+    data_dir: pipelines/data/neon-atlas   # your instance images live here
+    rank: 16
+    steps: 800
+    learning_rate: 1.0e-4
+    resolution: 1024
