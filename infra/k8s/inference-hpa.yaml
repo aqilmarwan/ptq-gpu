@@ -9,7 +9,7 @@ spec:
     kind: Deployment
     name: inference
   minReplicas: 1
-  maxReplicas: 3            # bounded by the gpu-a10g node group maxSize
+  maxReplicas: 3            # bounded by the gpu-l40s node group maxSize
   metrics:
     - type: Resource
       resource:
