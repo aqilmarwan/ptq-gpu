@@ -137,7 +137,7 @@ export function Studio() {
                 )}
               >
                 <div className="flex items-center gap-1.5 text-[13px] font-semibold">
-                  {p.id === "fast" ? <Sparkles className="h-3.5 w-3.5 text-int4" /> : <Wand2 className="h-3.5 w-3.5 text-fp16" />}
+                  {p.id === "fast" ? <Sparkles className="h-3.5 w-3.5 text-fp8" /> : <Wand2 className="h-3.5 w-3.5 text-fp16" />}
                   {p.label}
                 </div>
                 <p className="mt-1 text-[11px] leading-snug text-faint">{p.blurb}</p>

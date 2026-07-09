@@ -5,7 +5,7 @@ import type { Precision, Style, Variant } from "@/lib/types";
 import { precisionColor } from "@/lib/variants";
 import { cn } from "@/lib/utils";
 
-const PRECISIONS: Precision[] = ["FP16", "INT8", "INT4"];
+const PRECISIONS: Precision[] = ["FP16", "INT8", "FP8"];
 
 /** Resolve the variant for a (style, precision) cell, tolerating sparse matrices. */
 function resolve(variants: Variant[], style: Style, precision: Precision): Variant | undefined {
@@ -136,7 +136,7 @@ function QualityBar({ quality }: { quality: number }) {
           className="h-full rounded-full"
           style={{
             width: `${quality}%`,
-            background: "linear-gradient(90deg, var(--color-int4), var(--color-int8), var(--color-fp16))",
+            background: "linear-gradient(90deg, var(--color-fp8), var(--color-int8), var(--color-fp16))",
           }}
         />
       </div>

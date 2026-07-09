@@ -48,7 +48,7 @@ export function renderArtwork(prompt: string, seed: number, variant: Variant): s
       <rect width="768" height="768" fill="url(#g${i})"/>`;
   }).join("");
 
-  // grain rises as quality falls — INT4 looks visibly grainier than FP16
+  // grain rises as quality falls — FP8 looks visibly grainier than FP16
   const grain = ((100 - variant.quality) / 100) * 0.22;
   // a soft diagonal light streak for a "rendered" feel
   const streakAngle = Math.round(rng() * 360);

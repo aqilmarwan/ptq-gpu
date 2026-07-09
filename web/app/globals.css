@@ -27,7 +27,7 @@
   /* precision palette (the headline) — analogous green scale, still distinct */
   --color-fp16: #2dd4bf; /* teal  — full quality, slowest */
   --color-int8: #4ade80; /* green — balanced */
-  --color-int4: #a3e635; /* lime  — fastest, lightest */
+  --color-fp8: #a3e635; /* lime  — fastest, lightest */
 
   /* status */
   --color-good: #3ecf8e;

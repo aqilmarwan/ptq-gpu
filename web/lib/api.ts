@@ -111,7 +111,7 @@ async function mockGenerate(
   signal?: AbortSignal,
 ): Promise<GenerationResult> {
   const cold = !warmed.has(variant.id);
-  // cold load scales with weight size; a 13GB FP16 load costs more than 4GB INT4
+  // cold load scales with weight size; a 13GB FP16 load costs more than a 7GB FP8
   const coldLoadMs = cold ? 1400 + variant.sizeGB * 230 : 0;
 
   onEvent({

@@ -3,7 +3,7 @@ import type { Preset, Variant } from "./types";
 /**
  * Mock variant catalog — mirrors `inference/variants.yaml`.
  *
- * Numbers are representative of SDXL 1.0 on a single 24GB GPU and are only used
+ * Numbers are representative of SDXL 1.0 on a single L40S GPU and are only used
  * for the standalone demo. When the FastAPI `/variants` endpoint is reachable,
  * its (real, MLflow-registered) values replace these.
  */
@@ -33,21 +33,21 @@ export const MOCK_VARIANTS: Variant[] = [
     stepsPerSec: 9.4,
     quality: 95,
     defaultSteps: 30,
-    blurb: "optimum-quanto weight-only INT8. Near-FP16 quality, ~45% lighter.",
+    blurb: "TensorRT INT8, entropy-calibrated. Near-FP16 quality, ~45% lighter.",
     licence: "CreativeML OpenRAIL++-M",
   },
   {
-    id: "int4-base",
-    label: "INT4 · Base",
-    precision: "INT4",
+    id: "fp8-base",
+    label: "FP8 · Base",
+    precision: "FP8",
     style: "Base",
     base: "SDXL 1.0",
-    sizeGB: 4.3,
-    vramGB: 7.6,
-    stepsPerSec: 12.8,
-    quality: 90,
+    sizeGB: 6.6,
+    vramGB: 9.6,
+    stepsPerSec: 16.4,
+    quality: 92,
     defaultSteps: 28,
-    blurb: "NF4 double-quant via bitsandbytes. Fits comfortably, fastest base.",
+    blurb: "TensorRT FP8 on Ada/Hopper. Fits comfortably, fastest base.",
     licence: "CreativeML OpenRAIL++-M",
   },
   {
@@ -66,18 +66,18 @@ export const MOCK_VARIANTS: Variant[] = [
     licence: "OpenRAIL++-M + LoRA (CC-BY)",
   },
   {
-    id: "int4-lora",
-    label: "INT4 · LoRA",
-    precision: "INT4",
+    id: "fp8-lora",
+    label: "FP8 · LoRA",
+    precision: "FP8",
     style: "LoRA",
     base: "SDXL 1.0",
     loraName: "Neon Atlas",
-    sizeGB: 4.5,
-    vramGB: 7.9,
-    stepsPerSec: 12.2,
-    quality: 88,
+    sizeGB: 6.8,
+    vramGB: 9.9,
+    stepsPerSec: 15.8,
+    quality: 90,
     defaultSteps: 28,
-    blurb: "The LoRA style, quantised. The cheapest way to ship the brand look.",
+    blurb: "The LoRA style fused into an FP8 engine. The cheapest way to ship the brand look.",
     licence: "OpenRAIL++-M + LoRA (CC-BY)",
   },
 ];
@@ -86,10 +86,10 @@ export const MOCK_PRESETS: Preset[] = [
   {
     id: "fast",
     label: "Fast",
-    variantId: "int4-base",
+    variantId: "fp8-base",
     steps: 6,
     guidance: 2.0,
-    blurb: "Turbo schedule on INT4 — a frame in a heartbeat.",
+    blurb: "Turbo schedule on FP8 — a frame in a heartbeat.",
   },
   {
     id: "quality",
@@ -109,5 +109,5 @@ export const EXAMPLE_PROMPTS = [
 ];
 
 export function precisionColor(p: Variant["precision"]): string {
-  return p === "FP16" ? "var(--color-fp16)" : p === "INT8" ? "var(--color-int8)" : "var(--color-int4)";
+  return p === "FP16" ? "var(--color-fp16)" : p === "INT8" ? "var(--color-int8)" : "var(--color-fp8)";
 }

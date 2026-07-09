@@ -8,14 +8,14 @@
  * The frontend only ever calls those two endpoints. Model code never ships here.
  */
 
-export type Precision = "FP16" | "INT8" | "INT4";
+export type Precision = "FP16" | "INT8" | "FP8";
 export type Style = "Base" | "LoRA";
 
 /** A registered, servable model variant (precision × style), as defined in
  *  `inference/variants.yaml` and benchmarked into the MLflow registry. */
 export interface Variant {
-  id: string; // e.g. "int4-base"
-  label: string; // e.g. "INT4 · Base"
+  id: string; // e.g. "fp8-base"
+  label: string; // e.g. "FP8 · Base"
   precision: Precision;
   style: Style;
   base: string; // "SDXL 1.0"

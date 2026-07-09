@@ -5,7 +5,7 @@ import { cn, fmtGB, fmtMs } from "@/lib/utils";
 const SEGMENTS = [
   { key: "coldLoad", label: "cold load", color: "var(--color-fp16)" },
   { key: "denoise", label: "denoise", color: "var(--color-int8)" },
-  { key: "vaeDecode", label: "VAE decode", color: "var(--color-int4)" },
+  { key: "vaeDecode", label: "VAE decode", color: "var(--color-fp8)" },
 ] as const;
 
 /** The payoff: honest, server-side metrics around the real denoising loop. */
@@ -34,7 +34,7 @@ export function MetricsPanel({ metrics, compact = false }: { metrics: Metrics; c
           icon={MemoryStick}
           label="peak VRAM"
           value={fmtGB(metrics.vramPeakGB)}
-          tint="var(--color-int4)"
+          tint="var(--color-fp8)"
         />
       </div>
 

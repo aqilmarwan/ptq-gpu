@@ -26,7 +26,7 @@ export function Compare() {
   const [steps, setSteps] = useState(28);
   const [guidance, setGuidance] = useState(6.0);
   const [aId, setAId] = useState("fp16-base");
-  const [bId, setBId] = useState("int4-base");
+  const [bId, setBId] = useState("fp8-base");
 
   const a = useGeneration();
   const b = useGeneration();
