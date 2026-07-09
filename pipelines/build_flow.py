@@ -42,6 +42,7 @@ REPO = HERE.parent
 DEFAULT_VARIANTS = REPO / "inference" / "variants.yaml"
 LORAS_FILE = HERE / "loras.yaml"
 LORA_OUT_DIR = REPO / "inference" / "loras"
+ENGINE_OUT_DIR = HERE / "engines_out"   # local staging before S3 publish
 OUT_DIR = HERE / "out"
 
 sys.path.insert(0, str(HERE))  # let `import train_lora` resolve inside Metaflow steps
@@ -64,12 +65,14 @@ def _cuda_available() -> bool:
 # (after `ray.init`) to keep import side-effect free and demo runs Ray-optional.
 
 
-def _build_and_benchmark(base_model: str, variant: dict, trials: int, demo: bool, seed: int) -> dict:
+def _build_and_benchmark(base_model: str, variant: dict, trials: int, demo: bool,
+                         seed: int, engine_out: str, s3_uri: Optional[str]) -> dict:
     """Return the measured ``registry`` block for one variant.
 
-    In demo mode this simulates from the catalog baseline; in real mode it loads
-    the (quantised, optionally LoRA'd) pipeline once and times ``trials`` denoise
-    passes, reporting the median so a single cold outlier doesn't skew results.
+    Demo mode simulates from the catalog baseline. Real mode builds the variant's
+    TensorRT engine bundle (ONNX export -> engine -> publish to S3), then loads it
+    through the *serving* backend and times ``trials`` denoise passes -- so the
+    numbers come from the exact engines that will serve traffic.
     """
     vid = variant["id"]
     serving = variant.get("serving", {}) or {}
@@ -87,88 +90,102 @@ def _build_and_benchmark(base_model: str, variant: dict, trials: int, demo: bool
             "_simulated": True,
         }
 
-    import torch
-    from diffusers import StableDiffusionXLPipeline
+    from build_engines import EngineSpec, build_bundle, publish_s3
 
-    quant = serving.get("quant", "none")
-    dtype = torch.float16
-
-    t0 = time.perf_counter()
-    pipe = StableDiffusionXLPipeline.from_pretrained(
-        base_model, torch_dtype=dtype, use_safetensors=True, variant="fp16"
+    spec = EngineSpec(
+        engine=serving.get("engine", vid),
+        precision=serving.get("precision", "fp16"),
+        lora=serving.get("lora"),
     )
-    if quant in {"int8", "nf4"}:
-        from optimum.quanto import freeze, qint4, qint8, quantize
+    out_root = Path(engine_out)
+    bundle = build_bundle(spec, base_model, out_root, LORA_OUT_DIR)
+    if s3_uri:
+        publish_s3(bundle, s3_uri)
 
-        quantize(pipe.unet, weights=qint8 if quant == "int8" else qint4)
-        freeze(pipe.unet)
-    pipe = pipe.to("cuda")
-
-    lora = serving.get("lora")
-    if lora:
-        lora_path = REPO / "inference" / lora
-        if lora_path.exists():
-            pipe.load_lora_weights(str(lora_path))
-    pipe.set_progress_bar_config(disable=True)
-    load_s = time.perf_counter() - t0
+    # Honest on-disk size: the actual serialized engines.
+    size_gb = sum(p.stat().st_size for p in bundle.glob("*.plan")) / (1024**3)
 
     steps = int(baseline.get("defaultSteps", 30))
-    per_run_sps: list[float] = []
-    torch.cuda.reset_peak_memory_stats()
-    for i in range(max(1, trials)):
-        gen = torch.Generator(device="cuda").manual_seed(seed + i)
-        torch.cuda.synchronize()
-        r0 = time.perf_counter()
-        pipe(
-            prompt="a benchmark render of a city at dusk, volumetric light",
-            num_inference_steps=steps,
-            guidance_scale=6.5,
-            width=1024,
-            height=1024,
-            generator=gen,
-        )
-        torch.cuda.synchronize()
-        per_run_sps.append(steps / (time.perf_counter() - r0))
-
-    vram_gb = torch.cuda.max_memory_allocated() / (1024**3)
-    size_gb = _weights_size_gb(pipe, quant)
-    clip_raw = _score_quality(pipe, seed)  # normalised to a 0-100 quality in the join
+    bench = _benchmark_bundle(out_root, variant, serving, trials, seed, steps)
 
     return {
         "sizeGB": round(size_gb, 1),
-        "vramGB": round(vram_gb, 1),
-        "stepsPerSec": round(statistics.median(per_run_sps), 1),
+        "vramGB": bench["vramGB"],
+        "stepsPerSec": bench["stepsPerSec"],
         # Provisional; `build` rescales this from _clipRaw relative to fp16-base.
         "quality": baseline["quality"],
-        "_clipRaw": round(clip_raw, 4),
+        "_clipRaw": bench["clipRaw"],
         "defaultSteps": steps,
-        "coldLoadSec": round(load_s, 1),
         "_simulated": False,
     }
 
 
-def _score_quality(pipe, seed: int) -> float:
-    """Mean CLIP image-text cosine over a small fixed prompt set (raw ~0..35).
+def _benchmark_bundle(engine_out: str, variant: dict, serving: dict,
+                      trials: int, seed: int, steps: int) -> dict:
+    """Time the freshly built engines through the serving TensorRTBackend.
 
-    A *relative* metric: quantised variants are scored against the FP16 baseline
-    in the flow's join, so `quality` reads as "fidelity retained vs FP16" -- the
-    tradeoff this whole tool exists to surface.
+    Runs the same code path production serves, so latency/VRAM are honest and a
+    CLIP score (relative to fp16-base, normalised in the join) gives quality.
     """
-    import torch
-    from transformers import CLIPModel, CLIPProcessor
+    import importlib.util
+
+    sys.path.insert(0, str(REPO / "inference"))  # let the serving module's imports resolve
+    _spec = importlib.util.spec_from_file_location("serving_pipelines", REPO / "inference" / "pipelines.py")
+    serving_mod = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(serving_mod)
+    import schemas  # the SAME module serving_mod imported (sys.modules cache)
+    from metrics import peak_vram_gb, reset_peak_vram
+
+    backend = serving_mod.TensorRTBackend(Path(engine_out), max_resident=1)
+    v = schemas.Variant(
+        id=variant["id"], label=variant["label"], precision=variant["precision"],
+        style=variant["style"], base="SDXL 1.0", size_gb=0, vram_gb=0,
+        steps_per_sec=0, quality=0, default_steps=steps, blurb="", licence="",
+    )
+    sv = serving_mod.Serving(
+        engine=serving.get("engine", variant["id"]),
+        precision=serving.get("precision", "fp16"), lora=serving.get("lora"),
+    )
 
     prompts = [
         "a photograph of a red fox in a snowy forest, sharp focus",
         "an oil painting of a lighthouse at sunset over crashing waves",
         "a studio portrait of an elderly man, soft rim light",
     ]
+    reset_peak_vram()
+    images, sps = [], []
+    for i in range(max(1, trials)):
+        prompt = prompts[i % len(prompts)]
+        params = schemas.GenerationParams(prompt=prompt, variant_id=variant["id"],
+                                          steps=steps, seed=seed + i)
+        t0 = time.perf_counter()
+        out = backend.generate(v, sv, params, lambda e: None)
+        sps.append(steps / max(1e-6, (time.perf_counter() - t0)))
+        if i < len(prompts):
+            images.append((out.image_url, prompt))
+
+    return {
+        "stepsPerSec": round(statistics.median(sps), 1),
+        "vramGB": round(peak_vram_gb(), 1),
+        "clipRaw": round(_clip_score(images), 4),
+    }
+
+
+def _clip_score(images: list) -> float:
+    """Mean CLIP image-text cosine (raw ~0..35) over (data_url, prompt) pairs."""
+    import base64
+    import io
+
+    import torch
+    from PIL import Image
+    from transformers import CLIPModel, CLIPProcessor
+
     model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to("cuda")
     proc = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
     sims: list[float] = []
-    for i, prompt in enumerate(prompts):
-        gen = torch.Generator(device="cuda").manual_seed(seed + 100 + i)
-        img = pipe(prompt=prompt, num_inference_steps=20, guidance_scale=6.5,
-                   width=1024, height=1024, generator=gen).images[0]
+    for data_url, prompt in images:
+        raw = base64.b64decode(data_url.split(",", 1)[1])
+        img = Image.open(io.BytesIO(raw)).convert("RGB")
         inputs = proc(text=[prompt], images=img, return_tensors="pt", padding=True).to("cuda")
         with torch.no_grad():
             out = model(**inputs)
@@ -177,23 +194,7 @@ def _score_quality(pipe, seed: int) -> float:
         sims.append(float((ie * te).sum(dim=-1).item()))
     del model
     torch.cuda.empty_cache()
-    return 100.0 * sum(sims) / len(sims)
-
-
-def _weights_size_gb(pipe, quant: str) -> float:
-    """On-disk footprint of the served weights, in GB (dtype-aware)."""
-    import torch
-
-    bytes_per = {"int8": 1, "nf4": 0.5}.get(quant, 2)  # fp16 default = 2 bytes
-    params = 0
-    for module in (pipe.unet, pipe.vae, getattr(pipe, "text_encoder", None), getattr(pipe, "text_encoder_2", None)):
-        if module is None:
-            continue
-        for p in module.parameters():
-            # UNet honours the quantised width; VAE + text encoders stay fp16.
-            width = bytes_per if module is pipe.unet else 2
-            params += p.numel() * width
-    return params / (1024**3) if not isinstance(params, torch.Tensor) else float(params) / (1024**3)
+    return 100.0 * sum(sims) / len(sims) if sims else 0.0
 
 
 # --------------------------------------------------------------------------- #
@@ -210,6 +211,8 @@ class BuildFlow(FlowSpec):
     seed = Parameter("seed", default=1234, help="Base seed for reproducible benchmarks.")
     sync = Parameter("sync", is_flag=True, default=False, help="Write measured metrics back into variants.yaml.")
     experiment = Parameter("experiment", default="ptq-gpu/sdxl-quant", help="MLflow experiment name.")
+    engine_s3 = Parameter("engine-s3", default=os.getenv("STUDIO_ENGINE_S3_URI"),
+                          help="s3:// URI to publish built engine bundles to (real plane).")
 
     @step
     def start(self):
@@ -260,7 +263,8 @@ class BuildFlow(FlowSpec):
         ray.init(ignore_reinit_error=True, configure_logging=False)
         remote = ray.remote(num_gpus=0 if self.is_demo else 1)(_build_and_benchmark)
         futures = [
-            remote.remote(self.base_model, v, self.trials, self.is_demo, self.seed)
+            remote.remote(self.base_model, v, self.trials, self.is_demo, self.seed,
+                          str(ENGINE_OUT_DIR), self.engine_s3)
             for v in self.variants
         ]
         metrics = ray.get(futures)
