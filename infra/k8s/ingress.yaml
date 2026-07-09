@@ -1,0 +1,51 @@
+# One internet-facing ALB fronting both services, provisioned by the AWS Load
+# Balancer Controller (installed via infra/bootstrap.sh). TLS is terminated at
+# the ALB with an ACM certificate; HTTP is redirected to HTTPS.
+#
+# Before applying, replace the two placeholders:
+#   ACM_CERT_ARN   -> arn:aws:acm:<region>:<acct>:certificate/<id> (must cover
+#                     both the apex and api hostnames, e.g. a *.quant-studio.example.com cert)
+#   *.example.com  -> your real domain (Route 53 A/ALIAS records -> this ALB)
+#
+# Routing:
+#   quant-studio.example.com      -> web       (Next.js, port 3000)
+#   api.quant-studio.example.com  -> inference (FastAPI, port 8000)
+#
+# NEXT_PUBLIC_API_URL must be built as https://api.quant-studio.example.com so the
+# browser hits the same ALB over HTTPS (no mixed-content block).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: quant-studio
+  namespace: quant-studio
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip            # register pod IPs (ClusterIP services)
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"        # force HTTP -> HTTPS
+    alb.ingress.kubernetes.io/certificate-arn: ACM_CERT_ARN
+    # Both backends answer 200 on "/" (inference has a root health route), so a
+    # single ALB health check works for both target groups.
+    alb.ingress.kubernetes.io/healthcheck-path: /
+    alb.ingress.kubernetes.io/tags: project=ptq-gpu,app=quant-studio
+spec:
+  ingressClassName: alb
+  rules:
+    - host: quant-studio.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port: { number: 80 }
+    - host: api.quant-studio.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: inference
+                port: { number: 80 }
