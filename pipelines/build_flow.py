@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import os
 import statistics
+import sys
 import time
 from pathlib import Path
 
@@ -39,7 +40,11 @@ from metaflow import FlowSpec, Parameter, current, step
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 DEFAULT_VARIANTS = REPO / "inference" / "variants.yaml"
+LORAS_FILE = HERE / "loras.yaml"
+LORA_OUT_DIR = REPO / "inference" / "loras"
 OUT_DIR = HERE / "out"
+
+sys.path.insert(0, str(HERE))  # let `import train_lora` resolve inside Metaflow steps
 
 
 def _cuda_available() -> bool:
@@ -127,18 +132,52 @@ def _build_and_benchmark(base_model: str, variant: dict, trials: int, demo: bool
 
     vram_gb = torch.cuda.max_memory_allocated() / (1024**3)
     size_gb = _weights_size_gb(pipe, quant)
+    clip_raw = _score_quality(pipe, seed)  # normalised to a 0-100 quality in the join
 
     return {
         "sizeGB": round(size_gb, 1),
         "vramGB": round(vram_gb, 1),
         "stepsPerSec": round(statistics.median(per_run_sps), 1),
-        # CLIP/aesthetic scoring needs a scorer model; keep the catalog baseline
-        # until that harness lands rather than emitting a fake number.
+        # Provisional; `build` rescales this from _clipRaw relative to fp16-base.
         "quality": baseline["quality"],
+        "_clipRaw": round(clip_raw, 4),
         "defaultSteps": steps,
         "coldLoadSec": round(load_s, 1),
         "_simulated": False,
     }
+
+
+def _score_quality(pipe, seed: int) -> float:
+    """Mean CLIP image-text cosine over a small fixed prompt set (raw ~0..35).
+
+    A *relative* metric: quantised variants are scored against the FP16 baseline
+    in the flow's join, so `quality` reads as "fidelity retained vs FP16" -- the
+    tradeoff this whole tool exists to surface.
+    """
+    import torch
+    from transformers import CLIPModel, CLIPProcessor
+
+    prompts = [
+        "a photograph of a red fox in a snowy forest, sharp focus",
+        "an oil painting of a lighthouse at sunset over crashing waves",
+        "a studio portrait of an elderly man, soft rim light",
+    ]
+    model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to("cuda")
+    proc = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+    sims: list[float] = []
+    for i, prompt in enumerate(prompts):
+        gen = torch.Generator(device="cuda").manual_seed(seed + 100 + i)
+        img = pipe(prompt=prompt, num_inference_steps=20, guidance_scale=6.5,
+                   width=1024, height=1024, generator=gen).images[0]
+        inputs = proc(text=[prompt], images=img, return_tensors="pt", padding=True).to("cuda")
+        with torch.no_grad():
+            out = model(**inputs)
+        ie = out.image_embeds / out.image_embeds.norm(dim=-1, keepdim=True)
+        te = out.text_embeds / out.text_embeds.norm(dim=-1, keepdim=True)
+        sims.append(float((ie * te).sum(dim=-1).item()))
+    del model
+    torch.cuda.empty_cache()
+    return 100.0 * sum(sims) / len(sims)
 
 
 def _weights_size_gb(pipe, quant: str) -> float:
@@ -184,6 +223,33 @@ class BuildFlow(FlowSpec):
             print("No CUDA device -- falling back to the simulated (demo) plane.")
         print(f"Building {len(self.variants)} variants from {self.base_model} "
               f"[{'demo' if self.is_demo else 'real'} plane]")
+        self.next(self.train)
+
+    @step
+    def train(self):
+        """Train LoRAs declared in loras.yaml into inference/loras/ (real plane only)."""
+        self.trained = {}
+        if self.is_demo:
+            print("Demo plane -- skipping LoRA training (no fake weights emitted).")
+            self.next(self.build)
+            return
+
+        import yaml
+
+        from train_lora import LoraSpec
+        from train_lora import train as train_one
+
+        specs = [LoraSpec.from_dict(d) for d in (yaml.safe_load(LORAS_FILE.read_text()) or {}).get("loras", [])] \
+            if LORAS_FILE.exists() else []
+        for spec in specs:
+            try:
+                path = train_one(spec, self.base_model, LORA_OUT_DIR, REPO)
+                self.trained[spec.name] = str(path)
+                print(f"  trained {spec.name} -> {path}")
+            except Exception as exc:
+                # A missing dataset shouldn't sink the build; the variant falls
+                # back to base weights until the LoRA is trained.
+                print(f"  LoRA {spec.name} skipped: {exc}")
         self.next(self.build)
 
     @step
@@ -201,10 +267,24 @@ class BuildFlow(FlowSpec):
         ray.shutdown()
 
         self.results = {v["id"]: m for v, m in zip(self.variants, metrics)}
+        self._normalise_quality()
         for vid, m in self.results.items():
             tag = "sim" if m.get("_simulated") else "measured"
-            print(f"  {vid:<12} {m['stepsPerSec']:>5} steps/s  {m['vramGB']:>5} GB VRAM  ({tag})")
+            print(f"  {vid:<12} {m['stepsPerSec']:>5} steps/s  {m['vramGB']:>5} GB VRAM  "
+                  f"q={m['quality']:>3}  ({tag})")
         self.next(self.register)
+
+    def _normalise_quality(self):
+        """Rescale measured CLIP scores to 0-100 quality, relative to fp16-base.
+
+        Demo results already carry a baseline `quality`, so they're left alone.
+        """
+        raws = {vid: m["_clipRaw"] for vid, m in self.results.items() if "_clipRaw" in m}
+        if not raws:
+            return
+        ref = raws.get("fp16-base") or max(raws.values())  # fp16 == 100% fidelity
+        for vid, raw in raws.items():
+            self.results[vid]["quality"] = min(100, round(100 * raw / ref)) if ref else 0
 
     @step
     def register(self):
