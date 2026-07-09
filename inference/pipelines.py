@@ -3,10 +3,13 @@
 `Registry` is what `main.py` talks to. It owns the variant catalog and a single
 backend:
 
-* `DiffusersBackend` -- real SDXL on CUDA. Lazily loads each variant, keeps an
-  LRU set hot in VRAM (``max_resident``), quantises per `variants.yaml`, and
-  measures latency / VRAM / throughput around the real denoise loop.
-* `DemoBackend` -- no model, no GPU. Produces a seeded procedural image and
+* `TensorRTBackend` -- real SDXL on CUDA via prebuilt TensorRT engines. There is
+  no Hugging Face / diffusers dependency here: the text encoders, UNet, and VAE
+  decoder run as `.plan` engines (fetched from S3 into the engine dir by the
+  build pipeline / an init container), and the scheduler is vendored
+  (`trt_runtime.EulerScheduler`). Keeps an LRU set of bundles hot in VRAM
+  (``max_resident``) and measures latency / VRAM / throughput honestly.
+* `DemoBackend` -- no engines, no GPU. Produces a seeded procedural image and
   simulates timing from the registry benchmark. Used automatically off-GPU so
   the frontend is fully exercisable in local dev. Its metrics are simulated and
   logged as such.
@@ -34,14 +37,19 @@ log = logging.getLogger("studio.pipelines")
 # An emit callback receives event dicts (status / progress) to stream as SSE.
 Emit = Callable[[dict], None]
 
+# SDXL constants (fixed by the base architecture).
+VAE_SCALE = 0.13025
+LATENT_CHANNELS = 4
+VAE_DOWNSAMPLE = 8
+
 
 @dataclass
 class Serving:
-    """How to load a variant -- the `serving:` block from variants.yaml."""
+    """How to serve a variant -- the `serving:` block from variants.yaml."""
 
-    quant: str = "none"  # none | int8 | nf4
-    lora: Optional[str] = None
-    lora_scale: float = 0.8
+    engine: str            # bundle key: <engine>/ under the engine dir (and S3)
+    precision: str = "fp16"  # fp16 | int8 | fp8 -- informational; baked into the engine
+    lora: Optional[str] = None  # baked into the engine at build time; label only
 
 
 @dataclass
@@ -159,79 +167,86 @@ def _demo_image(prompt: str, seed: int, quality: int, width: int, height: int):
 
 
 # --------------------------------------------------------------------------- #
-# Diffusers backend (real SDXL on CUDA)
+# TensorRT backend (real SDXL, prebuilt engines)
 # --------------------------------------------------------------------------- #
 
 
-class DiffusersBackend:
-    """Real inference. Lazy per-variant load, LRU VRAM cache, honest metrics."""
+@dataclass
+class _Bundle:
+    """One variant's loaded engines + tokenizers, kept hot in VRAM."""
 
-    plane = "cuda"
+    te1: object
+    te2: object
+    unet: object
+    vae: object
+    tokenizers: tuple
 
-    def __init__(self, base_model: str, max_resident: int) -> None:
-        self.base_model = base_model
+
+class TensorRTBackend:
+    """Real inference from prebuilt TRT engines. HF-free, honest metrics.
+
+    Expected per-variant bundle at ``config.ENGINE_DIR/<serving.engine>/``:
+      text_encoder.plan  text_encoder_2.plan  unet.plan  vae_decoder.plan
+      tokenizer/  tokenizer_2/  metadata.json
+
+    Engine IO contract (produced by pipelines/build_engines.py):
+      text_encoder(.2)   in: input_ids[B,77]      out: hidden_states, (te2) pooled
+      unet               in: sample, timestep, encoder_hidden_states, text_embeds, time_ids
+                         out: noise_pred    (batch 2, for classifier-free guidance)
+      vae_decoder        in: latent         out: images[B,3,H,W] in [-1,1]
+    """
+
+    plane = "tensorrt"
+
+    def __init__(self, engine_dir: Path, max_resident: int) -> None:
+        self.engine_dir = engine_dir
         self.max_resident = max(1, max_resident)
-        self._cache: "OrderedDict[str, object]" = OrderedDict()  # variant_id -> pipeline
+        self._cache: "OrderedDict[str, _Bundle]" = OrderedDict()
 
     def is_resident(self, variant_id: str) -> bool:
         return variant_id in self._cache
 
-    def _build_pipeline(self, variant: Variant, serving: Serving):
-        import torch
-        from diffusers import StableDiffusionXLPipeline
+    def _load_bundle(self, serving: Serving) -> _Bundle:
+        from trt_runtime import ENGINE_FILES, TRTEngine, load_tokenizers
 
-        log.info("Loading %s (%s) ...", variant.id, serving.quant)
-        pipe = StableDiffusionXLPipeline.from_pretrained(
-            self.base_model,
-            torch_dtype=torch.float16,
-            use_safetensors=True,
-            variant="fp16",
+        bundle_dir = self.engine_dir / serving.engine
+        if not bundle_dir.is_dir():
+            raise FileNotFoundError(
+                f"engine bundle not found: {bundle_dir}. It should be fetched from "
+                f"{config.ENGINE_S3_URI or '<ENGINE_S3_URI unset>'} by the init container."
+            )
+        engines = {name: TRTEngine(bundle_dir / f"{name}.plan") for name in ENGINE_FILES}
+        return _Bundle(
+            te1=engines["text_encoder"],
+            te2=engines["text_encoder_2"],
+            unet=engines["unet"],
+            vae=engines["vae_decoder"],
+            tokenizers=load_tokenizers(bundle_dir),
         )
 
-        if serving.quant in {"int8", "nf4"}:
-            # Weight-only quantisation of the UNet; VAE + text encoders stay FP16.
-            from optimum.quanto import freeze, qint4, qint8, quantize
-
-            weights = qint8 if serving.quant == "int8" else qint4
-            quantize(pipe.unet, weights=weights)
-            freeze(pipe.unet)
-
-        pipe = pipe.to("cuda")
-
-        if serving.lora:
-            lora_path = config.LORA_DIR / Path(serving.lora).name
-            if lora_path.exists():
-                pipe.load_lora_weights(str(lora_path))
-            else:
-                log.warning("LoRA weights not found at %s -- serving base weights", lora_path)
-
-        pipe.set_progress_bar_config(disable=True)
-        return pipe
-
     def _ensure_loaded(self, variant: Variant, serving: Serving):
-        """Return (pipeline, was_cold, cold_load_ms)."""
+        """Return (bundle, was_cold, cold_load_ms)."""
         if variant.id in self._cache:
             self._cache.move_to_end(variant.id)
             return self._cache[variant.id], False, 0.0
 
         while len(self._cache) >= self.max_resident:
-            evicted_id, evicted = self._cache.popitem(last=False)
+            evicted_id, _ = self._cache.popitem(last=False)
             log.info("Evicting %s to free VRAM", evicted_id)
-            self._free(evicted)
+            self._free()
 
         t0 = time.perf_counter()
-        pipe = self._build_pipeline(variant, serving)
+        bundle = self._load_bundle(serving)
         cuda_sync()
         cold_ms = (time.perf_counter() - t0) * 1000.0
-        self._cache[variant.id] = pipe
-        return pipe, True, cold_ms
+        self._cache[variant.id] = bundle
+        return bundle, True, cold_ms
 
     @staticmethod
-    def _free(pipe) -> None:
+    def _free() -> None:
         try:
             import torch
 
-            del pipe
             torch.cuda.empty_cache()
         except Exception:
             pass
@@ -239,63 +254,117 @@ class DiffusersBackend:
     def generate(self, variant: Variant, serving: Serving, params: GenerationParams, emit: Emit) -> GenOutput:
         import torch
 
+        from trt_runtime import EulerScheduler
+
         cold_before = not self.is_resident(variant.id)
         emit({
             "type": "status",
             "stage": "load",
-            "message": (f"Cold-loading {variant.label} into VRAM..." if cold_before
+            "message": (f"Cold-loading {variant.label} engines into VRAM..." if cold_before
                         else f"{variant.label} resident -- warm start"),
             "cold": cold_before,
         })
-        pipe, cold, cold_ms = self._ensure_loaded(variant, serving)
+        bundle, cold, cold_ms = self._ensure_loaded(variant, serving)
 
         reset_peak_vram()
-        generator = torch.Generator(device="cuda").manual_seed(int(params.seed))
+        gen = torch.Generator(device="cuda").manual_seed(int(params.seed))
 
         emit({"type": "status", "stage": "denoise", "message": "Running denoising loop...", "cold": cold})
-        timings: dict[str, float] = {}
 
-        def on_step_end(pipe_, step_index, timestep, callback_kwargs):
-            if step_index == 0:
-                timings["denoise_start"] = time.perf_counter()
-            emit({"type": "progress", "step": step_index + 1, "totalSteps": params.steps})
-            return callback_kwargs
-
-        call_start = time.perf_counter()
-        cross_attn = {"scale": serving.lora_scale} if serving.lora else None
-        out = pipe(
-            prompt=params.prompt,
-            negative_prompt=params.negative_prompt or None,
-            num_inference_steps=params.steps,
-            guidance_scale=params.guidance,
-            width=params.width,
-            height=params.height,
-            generator=generator,
-            cross_attention_kwargs=cross_attn,
-            callback_on_step_end=on_step_end,
+        # --- text conditioning (uncond + cond, batched for guidance) --------
+        prompt_embeds, pooled = self._encode(bundle, params.prompt, params.negative_prompt)
+        add_time_ids = torch.tensor(
+            [[params.height, params.width, 0, 0, params.height, params.width]] * 2,
+            device="cuda", dtype=torch.float16,
         )
+
+        # --- latents --------------------------------------------------------
+        h = params.height // VAE_DOWNSAMPLE
+        w = params.width // VAE_DOWNSAMPLE
+        latents = torch.randn((1, LATENT_CHANNELS, h, w), generator=gen, device="cuda", dtype=torch.float16)
+        sched = EulerScheduler()
+        timesteps = sched.set_timesteps(params.steps)
+        latents = latents * sched.init_noise_sigma
+
+        # --- denoise loop ---------------------------------------------------
         cuda_sync()
-        denoise_end = time.perf_counter()
+        denoise_start = time.perf_counter()
+        for i, t in enumerate(timesteps):
+            model_in = sched.scale_model_input(torch.cat([latents, latents]), i)
+            timestep = t.expand(2).to(torch.float16)
+            noise = bundle.unet.infer({
+                "sample": model_in,
+                "timestep": timestep,
+                "encoder_hidden_states": prompt_embeds,
+                "text_embeds": pooled,
+                "time_ids": add_time_ids,
+            })["noise_pred"]
+            noise_uncond, noise_cond = noise.chunk(2)
+            noise = noise_uncond + params.guidance * (noise_cond - noise_uncond)
+            latents = sched.step(noise, i, latents)
+            emit({"type": "progress", "step": i + 1, "totalSteps": params.steps})
+        cuda_sync()
+        denoise_ms = (time.perf_counter() - denoise_start) * 1000.0
 
+        # --- VAE decode -----------------------------------------------------
         emit({"type": "status", "stage": "decode", "message": "VAE decoding latents...", "cold": cold})
+        vae_start = time.perf_counter()
+        image_t = bundle.vae.infer({"latent": latents / VAE_SCALE})["images"]
+        cuda_sync()
+        vae_ms = (time.perf_counter() - vae_start) * 1000.0
 
-        denoise_start = timings.get("denoise_start", call_start)
-        denoise_ms = (denoise_end - denoise_start) * 1000.0
-        vae_ms = max(0.0, (denoise_end - call_start) * 1000.0 - denoise_ms)
-        total_ms = cold_ms + (denoise_end - call_start) * 1000.0
+        image = _tensor_to_image(image_t)
         throughput = params.steps / (denoise_ms / 1000.0) if denoise_ms > 0 else 0.0
 
-        image = out.images[0]
         return GenOutput(
             image_url=_img_to_data_url(image),
             cold=cold,
             cold_load_ms=round(cold_ms),
             denoise_ms=round(denoise_ms),
             vae_ms=round(vae_ms),
-            total_ms=round(total_ms),
+            total_ms=round(cold_ms + denoise_ms + vae_ms),
             vram_peak_gb=peak_vram_gb(),
             throughput=round(throughput, 2),
         )
+
+    def _encode(self, bundle: _Bundle, prompt: str, negative: str):
+        """SDXL dual-encoder conditioning. Returns (prompt_embeds[2,77,2048], pooled[2,1280])."""
+        import torch
+
+        tok1, tok2 = bundle.tokenizers
+        seqs, pooleds = [], []
+        for text in (negative or "", prompt):  # uncond first, then cond
+            hidden = []
+            pooled_p = None
+            for tok, engine, is_two in ((tok1, bundle.te1, False), (tok2, bundle.te2, True)):
+                ids = tok(text, padding="max_length", max_length=77, truncation=True,
+                          return_tensors="pt").input_ids.to("cuda").to(torch.int32)
+                out = engine.infer({"input_ids": ids})
+                hidden.append(out["hidden_states"])
+                if is_two:
+                    pooled_p = out["pooled"]
+            seqs.append(torch.cat(hidden, dim=-1))
+            pooleds.append(pooled_p)
+        return torch.cat(seqs, dim=0), torch.cat(pooleds, dim=0)
+
+
+def _tensor_to_image(image_t):
+    """(1,3,H,W) in [-1,1] -> PIL RGB."""
+    import numpy as np
+    from PIL import Image
+
+    arr = (image_t / 2 + 0.5).clamp(0, 1)[0]
+    arr = (arr.permute(1, 2, 0).float().cpu().numpy() * 255).astype("uint8")
+    return Image.fromarray(arr, "RGB")
+
+
+def _trt_available() -> bool:
+    try:
+        import tensorrt  # noqa: F401
+
+        return True
+    except Exception:
+        return False
 
 
 # --------------------------------------------------------------------------- #
@@ -308,8 +377,8 @@ class Registry:
         path = Path(variants_file or config.VARIANTS_FILE)
         doc = yaml.safe_load(path.read_text())
 
-        base = config.BASE_MODEL_ENV or doc["base_model"]
         max_resident = int(doc.get("max_resident", 2))
+        base = doc.get("base_model", "SDXL 1.0")
 
         self._variants: list[Variant] = []
         self._serving: dict[str, Serving] = {}
@@ -332,18 +401,23 @@ class Registry:
             ))
             sv = raw.get("serving", {})
             self._serving[raw["id"]] = Serving(
-                quant=sv.get("quant", "none"),
+                engine=sv.get("engine", raw["id"]),
+                precision=sv.get("precision", "fp16"),
                 lora=sv.get("lora"),
-                lora_scale=sv.get("lora_scale", 0.8),
             )
         self._by_id = {v.id: v for v in self._variants}
 
-        use_real = not config.FORCE_DEMO and cuda_available()
+        use_real = not config.FORCE_DEMO and cuda_available() and _trt_available()
         if use_real:
-            log.info("CUDA detected -- using DiffusersBackend (real metrics)")
-            self.backend = DiffusersBackend(base, max_resident)
+            log.info("CUDA + TensorRT detected -- using TensorRTBackend (real metrics)")
+            self.backend = TensorRTBackend(config.ENGINE_DIR, max_resident)
         else:
-            reason = "STUDIO_DEMO set" if config.FORCE_DEMO else "no CUDA device"
+            if config.FORCE_DEMO:
+                reason = "STUDIO_DEMO set"
+            elif not cuda_available():
+                reason = "no CUDA device"
+            else:
+                reason = "tensorrt not importable"
             log.warning("DEMO plane (%s) -- metrics are simulated, not measured", reason)
             self.backend = DemoBackend()
 
