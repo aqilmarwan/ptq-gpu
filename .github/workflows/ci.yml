@@ -80,16 +80,10 @@ jobs:
 
       - name: Log in to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Ensure ECR repositories exist
-        run: |
-          for repo in quantstudio-inference quantstudio-web; do
-            aws ecr describe-repositories --repository-names "$repo" --region "${{ vars.AWS_REGION }}" >/dev/null 2>&1 \
-              || aws ecr create-repository \
-                   --repository-name "$repo" \
-                   --region "${{ vars.AWS_REGION }}" \
-                   --image-scanning-configuration scanOnPush=true
-          done
+        # NOTE: the quantstudio-inference / quantstudio-web ECR repos must exist.
+        # Create them once (the CI role only has push perms, not create):
+        #   aws ecr create-repository --repository-name quantstudio-inference --region <region>
+        #   aws ecr create-repository --repository-name quantstudio-web        --region <region>
 
       - uses: docker/setup-buildx-action@v3
 
