@@ -25,6 +25,19 @@ metadata:
 
 iam:
   withOIDC: true   # required for IRSA + the EBS/LB controller addons below
+  # IRSA roles for the controllers installed by infra/bootstrap.sh. eksctl
+  # attaches the AWS-managed policies via its well-known-policy shortcuts.
+  serviceAccounts:
+    - metadata:
+        name: aws-load-balancer-controller
+        namespace: kube-system
+      wellKnownPolicies:
+        awsLoadBalancerController: true
+    - metadata:
+        name: cluster-autoscaler
+        namespace: kube-system
+      wellKnownPolicies:
+        autoScaler: true
 
 # The cluster autoscaler and NVIDIA device plugin need these; eksctl also
 # auto-installs the device plugin when it sees GPU instances in a node group.
