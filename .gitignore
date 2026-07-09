@@ -13,3 +13,7 @@ pipelines/out/
 
 # LoRA training instance images (bring your own)
 pipelines/data/
+
+# Built TensorRT engine bundles (staged locally before S3 publish) + engine cache
+pipelines/engines_out/
+inference/engines/
