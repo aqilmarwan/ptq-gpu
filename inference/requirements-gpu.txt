@@ -1,12 +1,10 @@
-# Real inference plane — install on the CUDA GPU box (on top of requirements.txt).
+# Real (TensorRT) serving plane — install on the CUDA GPU box, on top of
+# requirements.txt. HF-free: engines run as prebuilt .plan files; the only HF
+# piece is transformers' CLIP tokenizer, loaded offline from bundled files.
 #   pip install -r requirements.txt -r requirements-gpu.txt
 # Install the CUDA build of torch for your platform first, e.g.:
 #   pip install torch --index-url https://download.pytorch.org/whl/cu124
 -r requirements.txt
-torch>=2.4
-diffusers>=0.31
-transformers>=4.44
-accelerate>=0.33
-safetensors>=0.4
-optimum-quanto>=0.2.4   # INT8 / INT4 weight-only quantisation
-bitsandbytes>=0.43      # NF4 (offline build flow)
+torch>=2.4                 # numeric framework + device buffers (not HF)
+tensorrt>=10.0             # engine runtime
+transformers>=4.44         # CLIPTokenizer only, local_files_only (no Hub, no token)
