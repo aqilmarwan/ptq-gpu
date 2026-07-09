@@ -12,7 +12,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
-Precision = Literal["FP16", "INT8", "INT4"]
+Precision = Literal["FP16", "INT8", "FP8"]
 Style = Literal["Base", "LoRA"]
 
 
