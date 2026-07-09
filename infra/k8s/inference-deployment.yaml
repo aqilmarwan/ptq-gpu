@@ -12,6 +12,9 @@ spec:
     metadata:
       labels: { app: inference }
     spec:
+      # S3 read access for the engine sync comes from this IRSA account
+      # (created by eksctl; see infra/eksctl-cluster.yaml).
+      serviceAccountName: inference
       # schedule onto the GPU node group (label set in eksctl-cluster.yaml)
       nodeSelector:
         role: gpu
@@ -19,6 +22,18 @@ spec:
         - key: nvidia.com/gpu
           operator: Exists
           effect: NoSchedule
+      # Sync the prebuilt TensorRT engine bundles from S3 into the shared volume
+      # before the server starts. No HF download at runtime.
+      initContainers:
+        - name: fetch-engines
+          image: amazon/aws-cli:2.17.0
+          command: ["sh", "-c", "aws s3 sync \"$STUDIO_ENGINE_S3_URI\" /engines --only-show-errors"]
+          env:
+            - name: STUDIO_ENGINE_S3_URI
+              value: "s3://REPLACE_ME-ptq-gpu-engines"
+          volumeMounts:
+            - name: engines
+              mountPath: /engines
       containers:
         - name: inference
           # CI overrides this with the ECR image via `kubectl set image`
@@ -28,29 +43,26 @@ spec:
           ports:
             - containerPort: 8000
           env:
-            # Only the web origin may call the API. Match the apex host served by
-            # the ALB (infra/k8s/ingress.yaml); update if your domain differs.
+            # Only the web origin may call the API.
             - name: STUDIO_CORS_ORIGINS
               value: "https://ptq-gpu.vercel.com"
-            # Hugging Face token for gated/base model downloads (real plane).
-            - name: HF_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: hf-token
-                  key: token
-                  optional: true      # demo plane needs no weights, so keep it optional
+            - name: STUDIO_ENGINE_DIR
+              value: /engines
+            # Surfaced for clear errors if a bundle is missing (init container fetches).
+            - name: STUDIO_ENGINE_S3_URI
+              value: "s3://REPLACE_ME-ptq-gpu-engines"
           resources:
             requests:
               cpu: "2"
               memory: 8Gi
             limits:
-              nvidia.com/gpu: "1"   # one A10G per pod
-              memory: 22Gi
-          # model weights cache (lazy download on first request)
+              nvidia.com/gpu: "1"   # one L40S per pod
+              memory: 30Gi
+          # prebuilt TensorRT engine bundles (synced from S3 by the init container)
           volumeMounts:
-            - name: model-cache
-              mountPath: /models
-          startupProbe:            # generous: torch + CUDA init on boot
+            - name: engines
+              mountPath: /engines
+          startupProbe:            # generous: TRT + CUDA init on boot
             httpGet: { path: /healthz, port: 8000 }
             failureThreshold: 30
             periodSeconds: 5
@@ -61,6 +73,6 @@ spec:
             httpGet: { path: /healthz, port: 8000 }
             periodSeconds: 20
       volumes:
-        - name: model-cache
+        - name: engines
           emptyDir:
             sizeLimit: 60Gi
