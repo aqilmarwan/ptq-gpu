@@ -2,7 +2,9 @@
 #
 # Two build targets:
 #    --target demo -> slim CPU image (no torch). For local/compose. Multi-arch.
-#    --target gpu -> CUDA image with the real diffusers stack. For EKS GPU nodes.
+#    --target gpu -> TensorRT runtime image. Serves prebuilt engines on EKS GPU
+#                    nodes; engine bundles are mounted at STUDIO_ENGINE_DIR (an
+#                    init container syncs them from S3). No HF/diffusers here.
 #
 # Build context is the REPO ROOT:
 #    docker build -f docker/Dockerfile.inference --target gpu -t <repo>/quantstudio-inference:tag .
@@ -18,19 +20,21 @@ EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 # ---------------------------------------------- real (GPU) --------
-FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 AS gpu
+# TensorRT + CUDA + Python ship in the NGC base image; we add only torch and the
+# CLIP tokenizer (transformers). tensorrt itself is NOT pip-installed -- it comes
+# from the base -- so requirements-gpu.txt's tensorrt pin is for bare-metal only.
+FROM nvcr.io/nvidia/tensorrt:24.08-py3 AS gpu
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
-      HF_HOME=/models/hf
+      STUDIO_ENGINE_DIR=/engines
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3 python3-pip python3-dev && \
-    rm -rf /var/lib/apt/lists/*
-COPY inference/requirements.txt inference/requirements-gpu.txt ./
-# torch resolves its CUDA 12.4 wheel from the PyTorch index
+COPY inference/requirements.txt ./
+# torch resolves its CUDA 12.x wheel from the PyTorch index; transformers is used
+# only for the offline CLIP tokenizer (no Hub, no HF token).
 RUN pip3 install --no-cache-dir --upgrade pip && \
-    pip3 install --no-cache-dir -r requirements-gpu.txt \
+    pip3 install --no-cache-dir -r requirements.txt \
+        "torch>=2.4" "transformers>=4.44" \
         --extra-index-url https://download.pytorch.org/whl/cu124
 COPY inference/ ./
 EXPOSE 8000
-# weights download lazily on first request and cache in /models (mount a volume)
+# Engine bundles are mounted at /engines (init container syncs them from S3).
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
