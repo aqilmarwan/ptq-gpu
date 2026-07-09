@@ -17,10 +17,10 @@ eksctl create cluster -f infra/eksctl-cluster.yaml
 # 2. In-cluster controllers the manifests depend on
 EKS_CLUSTER=quant-studio AWS_REGION=us-east-1 infra/bootstrap.sh
 
-# 3. Hugging Face token so the inference pods can pull the base SDXL weights
-kubectl -n quant-studio create secret generic hf-token \
-  --from-literal=token=hf_xxxxxxxxxxxxxxxxxxxxxxxx
-# (optional secret — the demo plane needs no weights; see infra/hf-token.secret.example.yaml)
+# 3. Build + publish the TensorRT engine bundles to S3 (once, on a GPU box):
+#      STUDIO_ENGINE_S3_URI=s3://<your-bucket> \
+#        python pipelines/build_flow.py run --sync --engine-s3 s3://<your-bucket>
+#    then point the deployment + eksctl IRSA at that bucket (replace REPLACE_ME-*).
 
 # 4. Namespace + workloads (CI normally does this; manual is fine too)
 kubectl apply -f infra/k8s/
@@ -43,7 +43,7 @@ Then wire DNS/TLS:
   it (step 2) or the HPA reports `<unknown>` and never scales.
 - The **Ingress** (`k8s/ingress.yaml`) is inert until the **AWS Load Balancer
   Controller** exists to reconcile it into an ALB (step 2).
-- The **cluster-autoscaler** is what actually adds `gpu-a10g` nodes when the HPA
+- The **cluster-autoscaler** is what actually adds `gpu-l40s` nodes when the HPA
   wants more inference replicas than fit; its IAM permissions come from the IRSA
   service account eksctl created in step 1.
 
