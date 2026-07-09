@@ -28,8 +28,17 @@ spec:
           ports:
             - containerPort: 8000
           env:
+            # Only the web origin may call the API. Match the apex host served by
+            # the ALB (infra/k8s/ingress.yaml); update if your domain differs.
             - name: STUDIO_CORS_ORIGINS
-              value: "*"            # tighten to the web LoadBalancer URL in prod
+              value: "https://ptq-gpu.vercel.com"
+            # Hugging Face token for gated/base model downloads (real plane).
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token
+                  key: token
+                  optional: true      # demo plane needs no weights, so keep it optional
           resources:
             requests:
               cpu: "2"
