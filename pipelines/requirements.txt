@@ -10,3 +10,12 @@ pyyaml>=6.0
 # LoRA training (real plane, train_lora.py). Pair torchvision with your torch build.
 peft>=0.11
 torchvision>=0.19
+
+# Engine build (real plane, build_engines.py): SDXL -> ONNX -> TensorRT -> S3.
+# Also needs the serving stack from inference/requirements-gpu.txt (torch, tensorrt)
+# plus diffusers/transformers for the one-time ONNX export.
+diffusers>=0.31
+transformers>=4.44
+accelerate>=0.33
+onnx>=1.16
+boto3>=1.34
