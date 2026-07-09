@@ -5,7 +5,7 @@
 #
 #   * metrics-server           -> the inference HPA reads CPU metrics from it
 #   * AWS Load Balancer Ctrl    -> turns infra/k8s/ingress.yaml into a real ALB
-#   * cluster-autoscaler        -> grows the gpu-a10g node group past desired size
+#   * cluster-autoscaler        -> grows the gpu-l40s node group past desired size
 #   * NVIDIA device plugin      -> advertises nvidia.com/gpu (usually auto-installed
 #                                  by eksctl for GPU node groups; applied here as a
 #                                  safety net)
