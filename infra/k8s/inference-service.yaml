@@ -5,7 +5,9 @@ metadata:
   namespace: quant-studio
   labels: { app: inference }
 spec:
-  type: LoadBalancer        # provisions an AWS ELB -> public URL for the browser
+  # ClusterIP: the public entrypoint is the shared ALB (infra/k8s/ingress.yaml),
+  # which terminates TLS and routes api.<domain> here.
+  type: ClusterIP
   selector: { app: inference }
   ports:
     - name: http
