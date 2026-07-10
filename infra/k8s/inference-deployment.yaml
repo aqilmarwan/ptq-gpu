@@ -50,7 +50,7 @@ spec:
               value: /engines
             # Surfaced for clear errors if a bundle is missing (init container fetches).
             - name: STUDIO_ENGINE_S3_URI
-              value: "s3://REPLACE_ME-ptq-gpu-engines"
+              value: "s3://quant-studio-engine-bucket"
           resources:
             requests:
               cpu: "2"

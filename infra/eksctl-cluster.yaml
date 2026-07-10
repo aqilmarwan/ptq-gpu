@@ -5,12 +5,12 @@
 #
 # Two managed node groups, matched to what infra/k8s expects:
 #   * general (role=general) -- cheap CPU nodes for the web Deployment.
-#   * gpu-l40s (role=gpu)     -- L40S nodes, tainted so ONLY the inference pods
+#   * gpu-a10g (role=gpu)     -- A10G nodes, tainted so ONLY the inference pods
 #                               (which tolerate nvidia.com/gpu) land on them.
 #
-# The gpu-l40s maxSize (3) is the ceiling the inference HPA scales into
-# (infra/k8s/inference-hpa.yaml: maxReplicas 3). g6e.2xlarge = 1x L40S (48GB),
-# 8 vCPU, 64Gi RAM -- FP8-capable, fits the inference pod's 30Gi limit + 1 GPU.
+# The gpu-a10g maxSize (3) is the ceiling the inference HPA scales into
+# (infra/k8s/inference-hpa.yaml: maxReplicas 3). g5.2xlarge = 1x A10G (24GB),
+# 8 vCPU, 32Gi RAM -- fits the inference pod's 22Gi memory limit + 1 GPU.
 
 apiVersion: eksctl.io/v1alpha5
 kind: ClusterConfig
@@ -48,8 +48,8 @@ iam:
           - Effect: Allow
             Action: ["s3:GetObject", "s3:ListBucket"]
             Resource:
-              - "arn:aws:s3:::REPLACE_ME-ptq-gpu-engines"
-              - "arn:aws:s3:::REPLACE_ME-ptq-gpu-engines/*"
+              - "arn:aws:s3:::quant-studio-engine-bucket"
+              - "arn:aws:s3:::quant-studio-engine-bucket/*"
 
 # The cluster autoscaler and NVIDIA device plugin need these; eksctl also
 # auto-installs the device plugin when it sees GPU instances in a node group.
