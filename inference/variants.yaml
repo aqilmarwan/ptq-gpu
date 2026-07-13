@@ -13,7 +13,7 @@
 # FP8 (Ada/Hopper, e.g. L40S). Adding a variant is a config edit: append a block,
 # build its engine, restart.
 
-base_model: SDXL 1.0
+base_model: stabilityai/stable-diffusion-xl-base-1.0
 
 # LRU VRAM budget -- how many engine bundles stay hot in VRAM at once. Loading an
 # (N+1)th evicts the least-recently-used one. Tune to your card.
