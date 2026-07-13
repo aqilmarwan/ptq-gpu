@@ -9,10 +9,11 @@ A bundle directory (published to ``s3://.../<engine>/``) contains:
     text_encoder.plan  text_encoder_2.plan  unet.plan  vae_decoder.plan
     tokenizer/  tokenizer_2/  metadata.json
 
+Only the UNet is quantised; the VAE and text encoders stay FP16.
 Precision -> TensorRT builder flags:
     fp16 -> FP16
-    int8 -> INT8 (needs a calibration cache; entropy calibration offline)
-    fp8  -> FP8  (Ada/Hopper only; falls back to FP16 with a warning elsewhere)
+    int8 -> INT8, entropy-calibrated by `_UNetCalibrator` (representative inputs)
+    fp8  -> builds FP16 for now + warns; real FP8 needs ModelOpt Q/DQ at export
 
 GPU-only and heavy. Everything is imported lazily. The engine-build specifics
 (opset, dynamic axes, calibration) follow NVIDIA's SDXL demo conventions but must
@@ -62,14 +63,18 @@ def build_bundle(spec: EngineSpec, base_model: str, out_root: Path, lora_dir: Pa
 
     onnx_dir = bundle / "onnx"
     onnx_dir.mkdir(exist_ok=True)
+    # Only the UNet is quantised (it dominates compute + VRAM); the VAE and text
+    # encoders stay FP16, which is standard for SDXL and matches variants.yaml's
+    # VRAM figures. So precision is per-component, not per-bundle.
     components = {
-        "text_encoder": _export_text_encoder(pipe.text_encoder, onnx_dir, "text_encoder", pooled=False),
-        "text_encoder_2": _export_text_encoder(pipe.text_encoder_2, onnx_dir, "text_encoder_2", pooled=True),
-        "unet": _export_unet(pipe.unet, onnx_dir),
-        "vae_decoder": _export_vae_decoder(pipe.vae, onnx_dir),
+        "text_encoder": (_export_text_encoder(pipe.text_encoder, onnx_dir, "text_encoder", pooled=False), "fp16"),
+        "text_encoder_2": (_export_text_encoder(pipe.text_encoder_2, onnx_dir, "text_encoder_2", pooled=True), "fp16"),
+        "unet": (_export_unet(pipe.unet, onnx_dir), spec.precision),
+        "vae_decoder": (_export_vae_decoder(pipe.vae, onnx_dir), "fp16"),
     }
-    for name, onnx_path in components.items():
-        _build_engine(onnx_path, bundle / f"{name}.plan", spec.precision)
+    for name, (onnx_path, precision) in components.items():
+        calibrator = _UNetCalibrator(onnx_dir / f"{name}.calib") if (name == "unet" and precision == "int8") else None
+        _build_engine(onnx_path, bundle / f"{name}.plan", precision, calibrator)
 
     # Tokenizers travel with the bundle so serving loads them offline.
     pipe.tokenizer.save_pretrained(str(bundle / "tokenizer"))
@@ -173,7 +178,60 @@ def _export_vae_decoder(vae, onnx_dir: Path) -> Path:
 # --------------------------------------------------------------------------- #
 
 
-def _build_engine(onnx_path: Path, plan_path: Path, precision: str) -> None:
+def _UNetCalibrator(cache_path: Path, num_batches: int = 16):
+    """INT8 entropy calibrator for the UNet, fed via torch device tensors.
+
+    Returns an ``IInt8EntropyCalibrator2`` instance (built inside a factory so
+    ``tensorrt`` stays a lazy import). It streams ``num_batches`` of representative
+    random inputs at CFG batch 2 -- enough to populate INT8 scales and produce a
+    working engine, and caches them to ``cache_path`` so rebuilds are instant.
+
+    For production-grade quality, replace the random tensors with recorded
+    activations from real denoising steps; the interface is identical.
+    """
+    import tensorrt as trt
+    import torch
+
+    shapes = {
+        "sample": (_B, 4, _LAT, _LAT),
+        "timestep": (_B,),
+        "encoder_hidden_states": (_B, _SEQ, 2048),
+        "text_embeds": (_B, 1280),
+        "time_ids": (_B, 6),
+    }
+
+    class _Calib(trt.IInt8EntropyCalibrator2):
+        def __init__(self):
+            super().__init__()
+            self.cache_path = Path(cache_path)
+            self.seen = 0
+            self._buffers = {}  # keep refs so the device memory outlives get_batch
+
+        def get_batch_size(self):
+            return _B
+
+        def get_batch(self, names):
+            if self.seen >= num_batches:
+                return None
+            self.seen += 1
+            self._buffers = {
+                n: torch.randn(shapes[n], device="cuda", dtype=torch.float16).contiguous()
+                for n in names if n in shapes
+            }
+            if len(self._buffers) != len(names):
+                return None
+            return [int(self._buffers[n].data_ptr()) for n in names]
+
+        def read_calibration_cache(self):
+            return self.cache_path.read_bytes() if self.cache_path.exists() else None
+
+        def write_calibration_cache(self, cache):
+            self.cache_path.write_bytes(cache)
+
+    return _Calib()
+
+
+def _build_engine(onnx_path: Path, plan_path: Path, precision: str, calibrator=None) -> None:
     import tensorrt as trt
 
     logger = trt.Logger(trt.Logger.WARNING)
@@ -191,16 +249,20 @@ def _build_engine(onnx_path: Path, plan_path: Path, precision: str) -> None:
 
     cfg = builder.create_builder_config()
     cfg.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 8 << 30)  # 8 GiB
-    if precision in {"fp16", "int8", "fp8"}:
-        cfg.set_flag(trt.BuilderFlag.FP16)          # fp16 fallback for unsupported layers
-    if precision == "int8":
-        cfg.set_flag(trt.BuilderFlag.INT8)          # requires a calibrator; see note below
-    if precision == "fp8":
-        cfg.set_flag(trt.BuilderFlag.FP8)           # Ada/Hopper
+    cfg.set_flag(trt.BuilderFlag.FP16)              # fp16 fallback for unsupported layers
 
-    # NOTE: INT8 needs an IInt8EntropyCalibrator2 over representative latents to
-    # populate scales; FP8 typically pairs with per-tensor scales baked at export
-    # (ModelOpt). Wire your calibrator here before shipping INT8/FP8 engines.
+    if precision == "int8":
+        cfg.set_flag(trt.BuilderFlag.INT8)
+        if calibrator is not None:
+            cfg.int8_calibrator = calibrator        # entropy-calibrated scales
+        else:
+            log.warning("INT8 requested for %s without a calibrator -- scales will be poor", onnx_path.name)
+    elif precision == "fp8":
+        # Post-training FP8 for SDXL needs Q/DQ nodes inserted at export time via
+        # NVIDIA ModelOpt; a bare FP8 flag can't calibrate scales, so TRT falls
+        # back to FP16 for most layers. Build FP16 and say so rather than ship a
+        # silently-degraded "FP8" engine. Wire ModelOpt to make FP8 real.
+        log.warning("FP8 not yet calibrated (needs ModelOpt Q/DQ) -- building FP16 for %s", onnx_path.name)
 
     _add_dynamic_profile(builder, network, cfg, trt)
 
