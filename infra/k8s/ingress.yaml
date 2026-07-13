@@ -1,18 +1,19 @@
-# One internet-facing ALB fronting both services, provisioned by the AWS Load
-# Balancer Controller (installed via infra/bootstrap.sh). TLS is terminated at
-# the ALB with an ACM certificate; HTTP is redirected to HTTPS.
+# Internet-facing ALB exposing the inference API over HTTPS, provisioned by the
+# AWS Load Balancer Controller (installed via infra/bootstrap.sh). TLS is
+# terminated at the ALB with an ACM cert; HTTP is redirected to HTTPS.
+#
+# The web app is hosted on Vercel (see STUDIO_CORS_ORIGINS on the inference
+# deployment), so the ALB fronts ONLY the inference service -- there's no
+# in-cluster web host here. (The web Deployment/Service are kept as a
+# self-hosted alternative; add an apex-host rule below if you drop Vercel.)
 #
 # Before applying, replace the two placeholders:
-#   ACM_CERT_ARN   -> arn:aws:acm:<region>:<acct>:certificate/<id> (must cover
-#                     both the apex and api hostnames, e.g. a *.quant-studio.example.com cert)
-#   *.example.com  -> your real domain (Route 53 A/ALIAS records -> this ALB)
+#   ACM_CERT_ARN  -> arn:aws:acm:<region>:<acct>:certificate/<id> covering api.<domain>
+#   <domain>      -> your real domain (Route 53 ALIAS record api.<domain> -> this ALB)
 #
-# Routing:
-#   quant-studio.example.com      -> web       (Next.js, port 3000)
-#   api.quant-studio.example.com  -> inference (FastAPI, port 8000)
-#
-# NEXT_PUBLIC_API_URL must be built as https://api.quant-studio.example.com so the
-# browser hits the same ALB over HTTPS (no mixed-content block).
+# Then set Vercel's NEXT_PUBLIC_API_URL = https://api.<domain> and the inference
+# STUDIO_CORS_ORIGINS to your Vercel origin, so the browser hits this ALB over
+# HTTPS with no mixed-content or CORS block.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -20,27 +21,16 @@ metadata:
   namespace: quant-studio
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/target-type: ip            # register pod IPs (ClusterIP services)
+    alb.ingress.kubernetes.io/target-type: ip            # register pod IPs (ClusterIP service)
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"        # force HTTP -> HTTPS
     alb.ingress.kubernetes.io/certificate-arn: ACM_CERT_ARN
-    # Both backends answer 200 on "/" (inference has a root health route), so a
-    # single ALB health check works for both target groups.
-    alb.ingress.kubernetes.io/healthcheck-path: /
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz  # inference liveness route
     alb.ingress.kubernetes.io/tags: project=ptq-gpu,app=quant-studio
 spec:
   ingressClassName: alb
   rules:
-    - host: quant-studio.example.com
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: web
-                port: { number: 80 }
-    - host: api.quant-studio.example.com
+    - host: api.ptq-gpu.vercel.com   # replace example.com with your domain
       http:
         paths:
           - path: /
