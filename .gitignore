@@ -11,8 +11,9 @@ mlruns/
 mlflow.db
 pipelines/out/
 
-# LoRA training instance images (bring your own)
-pipelines/data/
+# LoRA training instance images (bring your own) -- but keep the format docs
+pipelines/data/*
+!pipelines/data/README.md
 
 # Built TensorRT engine bundles (staged locally before S3 publish) + engine cache
 pipelines/engines_out/
