@@ -178,7 +178,12 @@ def _build_engine(onnx_path: Path, plan_path: Path, precision: str) -> None:
 
     logger = trt.Logger(trt.Logger.WARNING)
     builder = trt.Builder(logger)
-    network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+    # TRT 10 networks are always explicit-batch (the flag was removed); TRT 8
+    # needs it set. Handle both so the same build box works across versions.
+    flags = 0
+    if hasattr(trt.NetworkDefinitionCreationFlag, "EXPLICIT_BATCH"):
+        flags = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+    network = builder.create_network(flags)
     parser = trt.OnnxParser(network, logger)
     if not parser.parse(onnx_path.read_bytes()):
         errs = "; ".join(str(parser.get_error(i)) for i in range(parser.num_errors))
