@@ -13,7 +13,10 @@
 # FP8 (Ada/Hopper, e.g. L40S). Adding a variant is a config edit: append a block,
 # build its engine, restart.
 
+# HF id the engines are built from (pipelines/build_engines.py). Not shown in the UI.
 base_model: stabilityai/stable-diffusion-xl-base-1.0
+# Human-friendly name surfaced by GET /variants -> the frontend `base` field.
+base_label: SDXL 1.0
 
 # LRU VRAM budget -- how many engine bundles stay hot in VRAM at once. Loading an
 # (N+1)th evicts the least-recently-used one. Tune to your card.
