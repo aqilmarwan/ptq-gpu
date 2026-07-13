@@ -31,7 +31,10 @@ BASE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"  # real HF id (variants.
 GPU = "L40S"  # Ada -> FP8 capable, 48GB
 
 image = (
-    modal.Image.debian_slim(python_version="3.11")
+    # System CUDA from the NGC base so the torch + tensorrt wheels resolve their
+    # GPU libs cleanly (more reliable than debian_slim, where the tensorrt wheel
+    # can fail to find CUDA). add_python gives a clean 3.11 to install into.
+    modal.Image.from_registry("nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04", add_python="3.11")
     .pip_install(
         "torch>=2.4",
         "tensorrt>=10.0",
