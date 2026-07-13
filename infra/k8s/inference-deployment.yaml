@@ -30,7 +30,7 @@ spec:
           command: ["sh", "-c", "aws s3 sync \"$STUDIO_ENGINE_S3_URI\" /engines --only-show-errors"]
           env:
             - name: STUDIO_ENGINE_S3_URI
-              value: "s3://REPLACE_ME-ptq-gpu-engines"
+              value: "s3://quant-studio-engine-bucket"
           volumeMounts:
             - name: engines
               mountPath: /engines
