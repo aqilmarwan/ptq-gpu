@@ -378,7 +378,8 @@ class Registry:
         doc = yaml.safe_load(path.read_text())
 
         max_resident = int(doc.get("max_resident", 2))
-        base = doc.get("base_model", "SDXL 1.0")
+        # `base_model` is the HF id used to build engines; the UI shows base_label.
+        base = doc.get("base_label", "SDXL 1.0")
 
         self._variants: list[Variant] = []
         self._serving: dict[str, Serving] = {}
