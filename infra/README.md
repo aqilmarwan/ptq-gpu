@@ -26,16 +26,20 @@ EKS_CLUSTER=quant-studio AWS_REGION=us-east-1 infra/bootstrap.sh
 kubectl apply -f infra/k8s/
 ```
 
-Then wire DNS/TLS:
+Then wire DNS/TLS. The **web app is on Vercel**, so the ALB fronts only the
+inference API (`k8s/ingress.yaml`):
 
-1. Request an **ACM certificate** covering `quant-studio.example.com` and
-   `api.quant-studio.example.com`; put its ARN in `k8s/ingress.yaml`
-   (`ACM_CERT_ARN`) and replace `example.com` with your domain.
+1. Request an **ACM certificate** for `api.<domain>`; put its ARN in
+   `k8s/ingress.yaml` (`ACM_CERT_ARN`) and replace `example.com` with your domain.
 2. `kubectl -n quant-studio get ingress quant-studio` → copy the ALB hostname.
-3. Route 53 **ALIAS** records for both hosts → that ALB.
-4. Set the CI variable `INFERENCE_API_URL=https://api.quant-studio.example.com`
-   and set the inference CORS origin (`k8s/inference-deployment.yaml`) to the
-   apex host, so the browser and API share the ALB over HTTPS.
+3. Route 53 **ALIAS** record `api.<domain>` → that ALB.
+4. On **Vercel**, set `NEXT_PUBLIC_API_URL=https://api.<domain>`; on the inference
+   deployment, set `STUDIO_CORS_ORIGINS` to your Vercel origin. Now the browser
+   (Vercel) calls the API (ALB) over HTTPS with no mixed-content/CORS block.
+
+> Fully self-hosting instead of Vercel? Add an apex-host rule routing to the
+> in-cluster `web` Service in `k8s/ingress.yaml` (the Deployment/Service already
+> exist), and point `NEXT_PUBLIC_API_URL` at `https://api.<domain>` at build time.
 
 ## Why the ordering
 
