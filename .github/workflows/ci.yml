@@ -27,7 +27,7 @@ jobs:
           cache: pip
           cache-dependency-path: inference/requirements.txt
       - name: Install dependencies
-        run: pip install -r inference/requirements.txt pytest
+        run: pip install -r inference/requirements.txt pytest httpx   # httpx: FastAPI TestClient
       - name: Run tests (demo plane)
         run: pytest inference -q
         env:
