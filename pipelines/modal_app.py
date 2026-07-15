@@ -37,7 +37,10 @@ image = (
     modal.Image.from_registry("nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04", add_python="3.11")
     .pip_install(
         "torch>=2.4",
-        "tensorrt>=10.0",
+        # Pin to TRT 10.x: engines are NOT portable across major versions, and the
+        # serving image (NGC tensorrt:24.08) is TRT 10.3. `>=10.0` resolves to
+        # TRT 11, whose .plan files won't deserialize on the 10.x runtime.
+        "tensorrt==10.3.0",
         "diffusers>=0.31",
         "transformers>=4.44",
         "accelerate>=0.33",
