@@ -251,10 +251,21 @@ def _build_engine(onnx_path: Path, plan_path: Path, precision: str, calibrator=N
 
     cfg = builder.create_builder_config()
     cfg.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 8 << 30)  # 8 GiB
-    cfg.set_flag(trt.BuilderFlag.FP16)              # fp16 fallback for unsupported layers
+
+    def _set(flag_name: str) -> bool:
+        # BuilderFlag member names vary slightly across TensorRT versions; resolve
+        # by name and skip (with a warning) rather than crash on a missing attr.
+        flag = getattr(trt.BuilderFlag, flag_name, None)
+        if flag is None:
+            log.warning("TensorRT BuilderFlag.%s unavailable (trt %s) -- skipping", flag_name, trt.__version__)
+            return False
+        cfg.set_flag(flag)
+        return True
+
+    _set("FP16")                                    # fp16 fallback for unsupported layers
 
     if precision == "int8":
-        cfg.set_flag(trt.BuilderFlag.INT8)
+        _set("INT8")
         if calibrator is not None:
             cfg.int8_calibrator = calibrator        # entropy-calibrated scales
         else:
