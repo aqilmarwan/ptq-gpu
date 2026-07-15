@@ -282,8 +282,10 @@ def _build_engine(onnx_path: Path, plan_path: Path, precision: str, calibrator=N
     serialized = builder.build_serialized_network(network, cfg)
     if serialized is None:
         raise RuntimeError(f"engine build returned None for {onnx_path.name}")
-    plan_path.write_bytes(serialized)
-    log.info("  built %s (%.0f MB, %s)", plan_path.name, len(serialized) / 1e6, precision)
+    # serialized is an IHostMemory (no len); .nbytes is its size, and write_bytes
+    # accepts its buffer view.
+    plan_path.write_bytes(bytes(serialized))
+    log.info("  built %s (%.0f MB, %s)", plan_path.name, serialized.nbytes / 1e6, precision)
 
 
 def _add_dynamic_profile(builder, network, cfg, trt) -> None:
