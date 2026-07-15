@@ -6,5 +6,6 @@
 #   pip install torch --index-url https://download.pytorch.org/whl/cu124
 -r requirements.txt
 torch>=2.4                 # numeric framework + device buffers (not HF)
-tensorrt>=10.0             # engine runtime
+tensorrt==10.3.0           # engine runtime -- MUST match the build-time TRT major
+                           # (engines aren't portable across versions); == NGC 24.08
 transformers>=4.44         # CLIPTokenizer only, local_files_only (no Hub, no token)
