@@ -243,7 +243,9 @@ def _build_engine(onnx_path: Path, plan_path: Path, precision: str, calibrator=N
         flags = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
     network = builder.create_network(flags)
     parser = trt.OnnxParser(network, logger)
-    if not parser.parse(onnx_path.read_bytes()):
+    # parse_from_file (not parse(read_bytes())) so TRT can resolve weights that
+    # torch.onnx.export stored as external data sidecar files next to the .onnx.
+    if not parser.parse_from_file(str(onnx_path)):
         errs = "; ".join(str(parser.get_error(i)) for i in range(parser.num_errors))
         raise RuntimeError(f"ONNX parse failed for {onnx_path.name}: {errs}")
 
