@@ -18,4 +18,5 @@ diffusers>=0.31
 transformers>=4.44
 accelerate>=0.33
 onnx>=1.16
+onnxscript>=0.1   # torch.onnx.export (dynamo path) needs this
 boto3>=1.34

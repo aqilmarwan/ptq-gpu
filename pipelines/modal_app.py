@@ -45,6 +45,7 @@ image = (
         "torchvision>=0.19",
         "safetensors>=0.4",
         "onnx>=1.16",
+        "onnxscript>=0.1",   # torch.onnx.export (dynamo path) needs this
         "boto3>=1.34",
         "pyyaml>=6.0",
         "pillow>=10.3",
