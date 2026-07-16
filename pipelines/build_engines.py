@@ -41,6 +41,30 @@ class EngineSpec:
     lora: Optional[str] = None  # LoRA name to fuse before export
 
 
+def _normalise_lora(lora_path: Path) -> dict:
+    """Load a LoRA safetensors and normalise its keys for diffusers.
+
+    Community LoRAs vary in layout; the two mismatches we handle:
+      * a doubled UNet prefix ``unet.unet.`` -> ``unet.`` (what breaks target-module
+        matching with a "Target modules not found" ValueError), and
+      * the ``.lora.down`` / ``.lora.up`` naming -> diffusers' ``.lora_A`` / ``.lora_B``.
+    Keys already in diffusers form pass through untouched.
+    """
+    from safetensors.torch import load_file
+
+    state = load_file(str(lora_path))
+    out: dict = {}
+    for key, val in state.items():
+        k = key
+        while k.startswith("unet.unet."):
+            k = k.replace("unet.unet.", "unet.", 1)
+        k = k.replace(".lora.down.weight", ".lora_A.weight").replace(".lora.up.weight", ".lora_B.weight")
+        out[k] = val
+    if out != state:
+        log.info("  normalised %d LoRA keys for diffusers", sum(1 for a, b in zip(out, state) if a != b))
+    return out
+
+
 def build_bundle(spec: EngineSpec, base_model: str, out_root: Path, lora_dir: Path) -> Path:
     """Build a full engine bundle for one variant. Returns its local directory."""
     import torch
@@ -58,7 +82,7 @@ def build_bundle(spec: EngineSpec, base_model: str, out_root: Path, lora_dir: Pa
         lora_path = lora_dir / f"{spec.lora}.safetensors"
         if not lora_path.exists():
             raise FileNotFoundError(f"LoRA {lora_path} missing -- train it first (build_flow train step).")
-        pipe.load_lora_weights(str(lora_path))
+        pipe.load_lora_weights(_normalise_lora(lora_path))
         pipe.fuse_lora()  # bake weights in so the exported engine carries the style
 
     onnx_dir = bundle / "onnx"
