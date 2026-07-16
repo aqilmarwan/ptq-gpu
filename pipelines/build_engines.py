@@ -168,8 +168,10 @@ def _export_unet(unet, onnx_dir: Path) -> Path:
         _Wrap(unet), (*dummies, added["text_embeds"], added["time_ids"]), str(path),
         input_names=["sample", "timestep", "encoder_hidden_states", "text_embeds", "time_ids"],
         output_names=["noise_pred"],
+        # timestep must share the batch axis too, or the engine is inconsistent at
+        # the profile's min-batch corner and build_serialized_network returns None.
         dynamic_axes={k: {0: "B"} for k in
-                      ["sample", "encoder_hidden_states", "text_embeds", "time_ids", "noise_pred"]},
+                      ["sample", "timestep", "encoder_hidden_states", "text_embeds", "time_ids", "noise_pred"]},
         opset_version=18,
     )
     return path
