@@ -260,7 +260,20 @@ def _UNetCalibrator(cache_path: Path, num_batches: int = 16):
 def _build_engine(onnx_path: Path, plan_path: Path, precision: str, calibrator=None) -> None:
     import tensorrt as trt
 
-    logger = trt.Logger(trt.Logger.WARNING)
+    class _Logger(trt.ILogger):
+        # Collect ERROR/INTERNAL_ERROR messages so a failed (None) build reports
+        # the real reason instead of a bare "returned None".
+        def __init__(self):
+            trt.ILogger.__init__(self)
+            self.errors: list[str] = []
+
+        def log(self, severity, msg):
+            if severity <= trt.ILogger.Severity.ERROR:
+                self.errors.append(msg)
+            if severity <= trt.ILogger.Severity.INFO:
+                print(f"[TRT] {msg}", flush=True)
+
+    logger = _Logger()
     builder = trt.Builder(logger)
     # TRT 10 networks are always explicit-batch (the flag was removed); TRT 8
     # needs it set. Handle both so the same build box works across versions.
@@ -307,7 +320,8 @@ def _build_engine(onnx_path: Path, plan_path: Path, precision: str, calibrator=N
 
     serialized = builder.build_serialized_network(network, cfg)
     if serialized is None:
-        raise RuntimeError(f"engine build returned None for {onnx_path.name}")
+        detail = " | ".join(logger.errors[-6:]) or "no TRT error captured (see [TRT] log above)"
+        raise RuntimeError(f"engine build failed for {onnx_path.name}: {detail}")
     # serialized is an IHostMemory (no len); .nbytes is its size, and write_bytes
     # accepts its buffer view.
     plan_path.write_bytes(bytes(serialized))
