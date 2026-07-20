@@ -29,6 +29,7 @@ import modal
 
 BASE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"  # real HF id (variants.yaml carries a display name)
 GPU = "L40S"  # Ada -> FP8 capable, 48GB
+ENGINE_S3_URI = "s3://quant-studio-engine-bucket"  # where build_one publishes / serve pulls from
 
 image = (
     # System CUDA from the NGC base so the torch + tensorrt wheels resolve their
@@ -60,6 +61,27 @@ image = (
 
 app = modal.App("ptq-gpu-build", image=image)
 artifacts = modal.Volume.from_name("ptq-gpu-artifacts", create_if_missing=True)
+
+# Serving image: HF-free (no diffusers/peft/onnx) -- just the TRT runtime + the
+# CLIP tokenizer + the FastAPI stack. tensorrt is pinned to the SAME 10.3 the
+# engines were built with (plans aren't portable across versions).
+serving_image = (
+    modal.Image.from_registry("nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04", add_python="3.11")
+    .pip_install(
+        "torch>=2.4",
+        "tensorrt==10.3.0",
+        "transformers>=4.44",
+        "fastapi>=0.115",
+        "uvicorn[standard]>=0.30",
+        "pydantic>=2.7",
+        "pyyaml>=6.0",
+        "pillow>=10.3",
+        "numpy<2.3",
+        "boto3>=1.34",
+        extra_index_url="https://download.pytorch.org/whl/cu124",
+    )
+    .add_local_dir("inference", "/root/inference")
+)
 
 
 def _bootstrap() -> None:
@@ -101,6 +123,50 @@ def build_one(variant: dict, s3_uri: str) -> str:
     bundle = build_bundle(spec, BASE_MODEL, Path("/tmp/engines"), Path("/artifacts/loras"))
     publish_s3(bundle, s3_uri.rstrip("/"))
     return spec.engine
+
+
+def _sync_engines(s3_uri: str, dest: str) -> None:
+    """Mirror every object under the bucket/prefix into ``dest`` (like ``aws s3 sync``)."""
+    import boto3
+
+    bucket, _, prefix = s3_uri[len("s3://"):].partition("/")
+    prefix = prefix.rstrip("/")
+    s3 = boto3.client("s3")
+    kwargs = {"Bucket": bucket, **({"Prefix": prefix} if prefix else {})}
+    count = 0
+    for page in s3.get_paginator("list_objects_v2").paginate(**kwargs):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            rel = key[len(prefix):].lstrip("/") if prefix else key
+            local = Path(dest) / rel
+            local.parent.mkdir(parents=True, exist_ok=True)
+            s3.download_file(bucket, key, str(local))
+            count += 1
+    print(f"synced {count} engine files from {s3_uri} -> {dest}")
+
+
+@app.function(
+    image=serving_image,
+    gpu=GPU,
+    secrets=[modal.Secret.from_name("aws")],
+    min_containers=1,     # keep one L40S warm -> no cold starts (cost tradeoff, as requested)
+    timeout=60 * 60,
+)
+@modal.asgi_app()
+def serve():
+    """Serve the real FastAPI inference app on a warm L40S; engines pulled from S3.
+
+    Gives a public HTTPS URL with no EKS / ingress / cert / DNS. Point Vercel's
+    NEXT_PUBLIC_API_URL at it. This is also the on-device test of trt_runtime.py.
+    """
+    import os
+
+    os.environ.setdefault("STUDIO_ENGINE_DIR", "/engines")
+    os.environ.setdefault("STUDIO_CORS_ORIGINS", "*")   # tighten to your Vercel origin later
+    _sync_engines(ENGINE_S3_URI, "/engines")            # before importing main (Registry reads config at import)
+    sys.path.insert(0, "/root/inference")
+    from main import app as fastapi_app
+    return fastapi_app
 
 
 @app.local_entrypoint()
