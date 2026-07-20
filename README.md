@@ -9,18 +9,10 @@
     <img src="https://img.shields.io/badge/TensorRT-10-76B900?style=flat-square&logo=nvidia&logoColor=ffffff" alt="TensorRT" /></a>
   <a href="https://nextjs.org/">
     <img src="https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=nextdotjs&logoColor=ffffff" alt="Next.js" /></a>
-  <a href="https://github.com/aqilmarwan/ptq-gpu/graphs/contributors">
-    <img src="https://img.shields.io/github/contributors/aqilmarwan/ptq-gpu?style=flat-square" alt="contributors" /></a>
   <a href="">
     <img src="https://img.shields.io/github/last-commit/aqilmarwan/ptq-gpu?style=flat-square" alt="last update" /></a>
-  <a href="https://github.com/aqilmarwan/ptq-gpu/issues/">
-    <img src="https://img.shields.io/github/issues/aqilmarwan/ptq-gpu?style=flat-square" alt="open issues" /></a>
   <a href="https://github.com/aqilmarwan/ptq-gpu/blob/main/LICENSE">
     <img src="https://img.shields.io/github/license/aqilmarwan/ptq-gpu?style=flat-square" alt="license" /></a>
-  <a href="https://github.com/aqilmarwan/ptq-gpu/stargazers">
-    <img src="https://img.shields.io/github/stars/aqilmarwan/ptq-gpu?style=flat-square" alt="stars" /></a>
-  <a href="https://github.com/aqilmarwan/ptq-gpu/network/members">
-    <img src="https://img.shields.io/github/forks/aqilmarwan/ptq-gpu?style=flat-square" alt="forks" /></a>
   <h4>
     <a href="https://ptq-gpu.vercel.com">Live demo</a>
   </h4>
