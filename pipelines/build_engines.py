@@ -307,6 +307,15 @@ def _build_engine(onnx_path: Path, plan_path: Path, precision: str, calibrator=N
         _set("INT8")
         if calibrator is not None:
             cfg.int8_calibrator = calibrator        # entropy-calibrated scales
+            # Dynamic-shape INT8 needs a FIXED calibration profile matching the
+            # calibrator's batch (2); without it TRT calibrates at the min shape
+            # and reads past the batch-2 buffers -> illegal memory access.
+            calib_profile = builder.create_optimization_profile()
+            for i in range(network.num_inputs):
+                inp = network.get_input(i)
+                fixed = [2 if d == -1 else d for d in inp.shape]
+                calib_profile.set_shape(inp.name, fixed, fixed, fixed)
+            cfg.set_calibration_profile(calib_profile)
         else:
             log.warning("INT8 requested for %s without a calibrator -- scales will be poor", onnx_path.name)
     elif precision == "fp8":
