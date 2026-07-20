@@ -11,8 +11,6 @@
     <img src="https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=nextdotjs&logoColor=ffffff" alt="Next.js" /></a>
   <a href="">
     <img src="https://img.shields.io/github/last-commit/aqilmarwan/ptq-gpu?style=flat-square" alt="last update" /></a>
-  <a href="https://github.com/aqilmarwan/ptq-gpu/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/aqilmarwan/ptq-gpu?style=flat-square" alt="license" /></a>
   <h4>
     <a href="https://ptq-gpu.vercel.com">Live demo</a>
   </h4>
