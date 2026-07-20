@@ -306,12 +306,20 @@ class TensorRTBackend:
         cuda_sync()
         denoise_ms = (time.perf_counter() - denoise_start) * 1000.0
 
+        # Diagnostics: localise a black image to latents (scheduler/UNet) vs decode (VAE).
+        log.info("latents: min=%.3f max=%.3f mean=%.3f finite=%s",
+                 float(latents.min()), float(latents.max()), float(latents.mean()),
+                 bool(torch.isfinite(latents).all()))
+
         # --- VAE decode -----------------------------------------------------
         emit({"type": "status", "stage": "decode", "message": "VAE decoding latents...", "cold": cold})
         vae_start = time.perf_counter()
         image_t = bundle.vae.infer({"latent": latents / VAE_SCALE})["images"]
         cuda_sync()
         vae_ms = (time.perf_counter() - vae_start) * 1000.0
+        log.info("vae out: min=%.3f max=%.3f mean=%.3f finite=%s",
+                 float(image_t.min()), float(image_t.max()), float(image_t.mean()),
+                 bool(torch.isfinite(image_t).all()))
 
         image = _tensor_to_image(image_t)
         throughput = params.steps / (denoise_ms / 1000.0) if denoise_ms > 0 else 0.0
