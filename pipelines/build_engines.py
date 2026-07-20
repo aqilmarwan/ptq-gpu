@@ -78,6 +78,11 @@ def build_bundle(spec: EngineSpec, base_model: str, out_root: Path, lora_dir: Pa
     pipe = StableDiffusionXLPipeline.from_pretrained(
         base_model, torch_dtype=torch.float16, use_safetensors=True, variant="fp16"
     )
+    # SDXL's stock VAE overflows in fp16 and decodes to a solid black image. Swap
+    # in the fp16-fix VAE so the fp16 VAE engine decodes correctly.
+    from diffusers import AutoencoderKL
+    pipe.vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16)
+
     if spec.lora:
         lora_path = lora_dir / f"{spec.lora}.safetensors"
         if not lora_path.exists():
