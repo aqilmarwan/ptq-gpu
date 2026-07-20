@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Call the /generate SSE endpoint, save the image to out.png, print metrics.
+"""Wait for the endpoint to be ready, call /generate, save the image, print metrics.
 
 Usage:
     python3 scripts/generate.py <base-url> [prompt] [variant]
@@ -8,30 +8,50 @@ Example:
     python3 scripts/generate.py https://mrwndevs--ptq-gpu-build-serve.modal.run
     python3 scripts/generate.py https://...modal.run "a lighthouse at dusk" int8-base
 
-Stdlib only -- no pip installs. Avoids the shell-quoting/curl-multiline mess.
+Stdlib only. Polls /healthz first because a freshly-deployed Modal container
+syncs the engines from S3 on startup (a few minutes, cross-region) and returns
+redirects until it's ready -- polling health sidesteps both the hang and the 302s.
 """
 
 import base64
 import json
 import sys
+import time
+import urllib.error
 import urllib.request
 
 base = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else sys.exit("usage: generate.py <base-url> [prompt] [variant]")
-prompt = sys.argv[2] if len(sys.argv) > 2 else "a red fox in snow, sharp focus, natural light"
+prompt = sys.argv[2] if len(sys.argv) > 2 else "spongebob with friends"
 variant = sys.argv[3] if len(sys.argv) > 3 else "fp16-base"
+
+
+def wait_for_ready(timeout_s: int = 900) -> None:
+    """Poll /healthz until the container is up (engines synced, Registry loaded)."""
+    print(f"waiting for {base}/healthz (cold start syncs engines from S3)...")
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(base + "/healthz", timeout=15) as r:
+                body = json.loads(r.read())
+                print(f"ready · plane={body.get('plane')} · variants={body.get('variants')}")
+                return
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            print("  still starting...", flush=True)
+            time.sleep(10)
+    sys.exit("timed out waiting for the container to become ready")
+
+
+wait_for_ready()
 
 body = json.dumps({
     "prompt": prompt, "variantId": variant,
     "steps": 20, "seed": 1, "width": 1024, "height": 1024,
 }).encode()
-
-req = urllib.request.Request(
-    base + "/generate", data=body, headers={"Content-Type": "application/json"}
-)
+req = urllib.request.Request(base + "/generate", data=body, headers={"Content-Type": "application/json"})
 
 result = None
-print(f"POST {base}/generate  variant={variant!r}  prompt={prompt!r}")
-with urllib.request.urlopen(req) as resp:
+print(f"POST /generate  variant={variant!r}  prompt={prompt!r}")
+with urllib.request.urlopen(req, timeout=300) as resp:      # first gen deserializes the engine (slow)
     for raw in resp:
         line = raw.decode("utf-8")
         if not line.startswith("data:"):
