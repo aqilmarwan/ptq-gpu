@@ -9,8 +9,9 @@ those numbers get there honestly, instead of being hand-typed.
 
 Two planes, mirroring the inference service:
 
-* **real**  -- torch + diffusers on CUDA. Quantises the UNet (INT8/NF4), attaches
-  LoRA, and measures size / VRAM / throughput around a real denoise loop.
+* **real**  -- builds each variant's TensorRT engine bundle (build_engines.py:
+  ONNX export -> engine -> publish to S3), then benchmarks it through the serving
+  backend, measuring size / VRAM / throughput around a real denoise loop.
 * **demo**  -- no GPU, no downloads. Simulates each variant's benchmark from the
   catalog baseline so the whole flow is exercisable in CI / on a laptop. Demo
   metrics are clearly logged as simulated. Selected with ``--demo`` or whenever
