@@ -1,12 +1,13 @@
 name: CI
 
-# test -> build -> push ECR -> deploy EKS
+# test -> build inference image -> push ECR -> deploy EKS
 #
+# Web is on Vercel; only the inference service is built + deployed here.
 # Tests run on every push/PR. Build + deploy run only for pushes to main and
 # require these repo settings:
 #   Secrets:  AWS_DEPLOY_ROLE_ARN   (IAM role trusted for GitHub OIDC)
 #   Vars:     AWS_REGION, ECR_REGISTRY (<acct>.dkr.ecr.<region>.amazonaws.com),
-#             EKS_CLUSTER, INFERENCE_API_URL (browser-reachable inference LB URL)
+#             EKS_CLUSTER
 
 on:
   push:
@@ -80,10 +81,9 @@ jobs:
 
       - name: Log in to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
-        # NOTE: the quantstudio-inference / quantstudio-web ECR repos must exist.
-        # Create them once (the CI role only has push perms, not create):
+        # NOTE: the quantstudio-inference ECR repo must exist. Create it once
+        # (the CI role has push perms, not create):
         #   aws ecr create-repository --repository-name quantstudio-inference --region <region>
-        #   aws ecr create-repository --repository-name quantstudio-web        --region <region>
 
       - uses: docker/setup-buildx-action@v3
 
@@ -99,20 +99,7 @@ jobs:
             ${{ vars.ECR_REGISTRY }}/quantstudio-inference:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Build & push web image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile.web
-          push: true
-          build-args: |
-            NEXT_PUBLIC_API_URL=${{ vars.INFERENCE_API_URL }}
-          tags: |
-            ${{ vars.ECR_REGISTRY }}/quantstudio-web:${{ github.sha }}
-            ${{ vars.ECR_REGISTRY }}/quantstudio-web:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      # Web is hosted on Vercel, so no web image is built/deployed here.
 
   # --------------------------------------------------------- deploy EKS ------
   deploy:
@@ -141,17 +128,13 @@ jobs:
           kubectl apply -f infra/k8s/namespace.yaml
           kubectl apply -f infra/k8s/
 
-      - name: Roll out the freshly built images
+      - name: Roll out the freshly built image
         env:
           REGISTRY: ${{ vars.ECR_REGISTRY }}
           TAG: ${{ github.sha }}
         run: |
           kubectl -n quant-studio set image deployment/inference \
             inference=$REGISTRY/quantstudio-inference:$TAG
-          kubectl -n quant-studio set image deployment/web \
-            web=$REGISTRY/quantstudio-web:$TAG
 
-      - name: Wait for rollouts
-        run: |
-          kubectl -n quant-studio rollout status deployment/inference --timeout=15m
-          kubectl -n quant-studio rollout status deployment/web --timeout=5m
+      - name: Wait for rollout
+        run: kubectl -n quant-studio rollout status deployment/inference --timeout=15m
