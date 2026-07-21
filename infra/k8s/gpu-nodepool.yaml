@@ -16,9 +16,12 @@ spec:
         role: gpu
     spec:
       requirements:
+        # Accept any of these single-GPU types so Auto Mode provisions whatever
+        # has capacity/quota. g5=A10G(24GB), g6=L4(24GB), g6e=L40S(48GB, FP8).
+        # FP8 isn't real yet, so A10G/L4 serve the FP16/INT8 variants fine.
         - key: node.kubernetes.io/instance-type
           operator: In
-          values: ["g6e.2xlarge"]          # 1x L40S (48GB), FP8-capable
+          values: ["g5.2xlarge", "g6.2xlarge", "g6e.2xlarge"]
         - key: kubernetes.io/arch
           operator: In
           values: ["amd64"]
