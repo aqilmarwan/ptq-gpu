@@ -61,7 +61,6 @@ def train(spec: LoraSpec, base_model: str, out_dir: Path, repo_root: Path) -> Pa
         UNet2DConditionModel,
     )
     from peft import LoraConfig, get_peft_model_state_dict
-    from PIL import Image
     from torchvision import transforms
     from transformers import AutoTokenizer, CLIPTextModel, CLIPTextModelWithProjection
 
