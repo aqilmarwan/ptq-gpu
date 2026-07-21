@@ -358,7 +358,6 @@ class TensorRTBackend:
 
 def _tensor_to_image(image_t):
     """(1,3,H,W) in [-1,1] -> PIL RGB."""
-    import numpy as np
     from PIL import Image
 
     arr = (image_t / 2 + 0.5).clamp(0, 1)[0]
