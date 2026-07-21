@@ -289,6 +289,5 @@ Distributed under the MIT License. See [`LICENSE`](LICENSE) for details.
 - [Stable Diffusion XL](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0) — Stability AI
 - [TensorRT](https://developer.nvidia.com/tensorrt) · [diffusers](https://github.com/huggingface/diffusers) · [FastAPI](https://fastapi.tiangolo.com/) · [Next.js](https://nextjs.org/) · [Modal](https://modal.com/)
 - Cyberpunk SDXL LoRA — [issaccyj/lora-sdxl-cyberpunk](https://huggingface.co/issaccyj/lora-sdxl-cyberpunk)
-- README format inspired by [vkayy/vkdb](https://github.com/vkayy/vkdb)
 
 <p align="right"><a href="#readme-top">back to top</a></p>
