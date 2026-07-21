@@ -1,0 +1,51 @@
+# EKS Auto Mode GPU NodePool + the inference ServiceAccount.
+#
+# Your cluster is EKS Auto Mode, which provisions nodes from NodePools (Karpenter)
+# rather than the fixed managed node group in eksctl-cluster.yaml. This NodePool is
+# what lets the inference pod actually schedule: it launches L40S nodes labelled
+# `role: gpu` and tainted `nvidia.com/gpu`, matching the deployment's nodeSelector
+# + toleration. Auto Mode ships the NVIDIA driver, so no device plugin is needed.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: gpu-l40s
+spec:
+  template:
+    metadata:
+      labels:
+        role: gpu
+    spec:
+      requirements:
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["g6e.2xlarge"]          # 1x L40S (48GB), FP8-capable
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+      taints:
+        - key: nvidia.com/gpu
+          effect: NoSchedule
+      nodeClassRef:
+        group: eks.amazonaws.com
+        kind: NodeClass
+        name: default          # Auto Mode's built-in NodeClass
+      terminationGracePeriod: 24h0m0s
+  limits:
+    cpu: "24"                  # ~3 g6e.2xlarge -> matches the inference HPA maxReplicas
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 5m
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: inference
+  namespace: quant-studio
+  # S3 read for the engine sync comes from an EKS Pod Identity association (below),
+  # so no IRSA annotation is needed on Auto Mode:
+  #   aws eks create-pod-identity-association --cluster-name quant-studio \
+  #     --namespace quant-studio --service-account inference \
+  #     --role-arn arn:aws:iam::<acct>:role/ptq-gpu-inference-s3
