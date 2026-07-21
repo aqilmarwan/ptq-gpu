@@ -137,4 +137,4 @@ jobs:
             inference=$REGISTRY/quantstudio-inference:$TAG
 
       - name: Wait for rollout
-        run: kubectl -n quant-studio rollout status deployment/inference --timeout=15m
+        run: kubectl -n quant-studio rollout status deployment/inference --timeout=22m
