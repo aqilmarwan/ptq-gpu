@@ -6,6 +6,9 @@ metadata:
   labels: { app: inference }
 spec:
   replicas: 1
+  # A cold first deploy provisions a new GPU node + pulls the multi-GB image +
+  # syncs engines + inits CUDA/TRT, which exceeds the default 600s. Give it room.
+  progressDeadlineSeconds: 1200
   selector:
     matchLabels: { app: inference }
   template:
