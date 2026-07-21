@@ -6,52 +6,6 @@ estimated. Cold vs warm is reported honestly by the pipeline registry.
 
 from __future__ import annotations
 
-import time
-from contextlib import contextmanager
-from dataclasses import dataclass, field
-
-
-def now() -> float:
-    """Monotonic clock in seconds -- immune to wall-clock adjustments."""
-    return time.perf_counter()
-
-
-@dataclass
-class Stopwatch:
-    """Accumulating timer. ``ms`` returns elapsed milliseconds."""
-
-    _start: float = field(default_factory=now)
-    _elapsed: float = 0.0
-    _running: bool = True
-
-    def stop(self) -> float:
-        if self._running:
-            self._elapsed += now() - self._start
-            self._running = False
-        return self.ms
-
-    def lap(self) -> float:
-        """Milliseconds since the last lap/start, without stopping."""
-        t = now()
-        delta = t - self._start
-        self._start = t
-        return delta * 1000.0
-
-    @property
-    def ms(self) -> float:
-        live = (now() - self._start) if self._running else 0.0
-        return (self._elapsed + live) * 1000.0
-
-
-@contextmanager
-def measure():
-    """`with measure() as sw: ...` -> sw.ms holds the elapsed milliseconds."""
-    sw = Stopwatch()
-    try:
-        yield sw
-    finally:
-        sw.stop()
-
 
 def cuda_available() -> bool:
     try:
