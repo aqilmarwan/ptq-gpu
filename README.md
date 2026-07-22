@@ -1,22 +1,10 @@
-<a id="readme-top"></a>
 
-<div align="center">
-  <h1>ptq-gpu</h1>
-  <p>Benchmarking the p95 latency, VRAM, and quality tradeoff of quantised SDXL — served as TensorRT engines on real GPU hardware.</p>
-  <a href="https://www.python.org/">
-    <img src="https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=ffffff" alt="Python" /></a>
-  <a href="https://developer.nvidia.com/tensorrt">
-    <img src="https://img.shields.io/badge/TensorRT-10.3-76B900?style=flat-square&logo=nvidia&logoColor=ffffff" alt="TensorRT" /></a>
-  <a href="https://nextjs.org/">
-    <img src="https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=nextdotjs&logoColor=ffffff" alt="Next.js" /></a>
-  <a href="https://github.com/aqilmarwan/ptq-gpu/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/aqilmarwan/ptq-gpu?style=flat-square" alt="license" /></a>
-  <a href="">
-    <img src="https://img.shields.io/github/last-commit/aqilmarwan/ptq-gpu?style=flat-square" alt="last update" /></a>
-  <h4>
-    <a href="https://ptq-gpu.vercel.app">Live demo</a>
-  </h4>
-</div>
+
+# ptq-gpu
+
+Benchmarking the p95 latency, VRAM, and quality tradeoff of quantised SDXL — served as TensorRT engines on real GPU hardware.
+
+#### [Live demo](https://ptq-gpu.vercel.app)
 
 > [!NOTE]
 > The **demo plane** runs the entire studio on CPU with **zero GPUs** — `docker compose up` and go. GPUs are only needed to build engines and to serve/benchmark the real (TensorRT) plane.
@@ -29,6 +17,7 @@
 [Overview](#overview)
 
 [How it works](#how-it-works)
+
 - [Two planes](#two-planes)
 - [Serving](#serving)
 - [Build pipeline](#build-pipeline)
@@ -37,6 +26,7 @@
 [Variants](#variants)
 
 [Running locally](#running-locally)
+
 - [Requirements](#requirements)
 - [Demo plane](#demo-plane)
 - [Tests](#tests)
@@ -55,7 +45,7 @@
 
 [Credits](#credits)
 
-<p align="right"><a href="#readme-top">back to top</a></p>
+[back to top](#readme-top)
 
 ---
 
@@ -70,15 +60,15 @@ hardware**: p50/p95/p99 latency, peak VRAM, and quality.
 Latency is the deliverable, so two things matter:
 
 - **The engines are prebuilt TensorRT `.plan` files.** There is no Hugging Face or
-  `diffusers` at serving time — the text encoders, UNet, and VAE run as engines and
-  the scheduler is vendored. That strips framework overhead out of the measurement.
+`diffusers` at serving time — the text encoders, UNet, and VAE run as engines and
+the scheduler is vendored. That strips framework overhead out of the measurement.
 - **It runs on a pinned GPU (EKS), not a serverless pool.** One dedicated card gives
-  reproducible p95 instead of run-to-run allocation variance.
+reproducible p95 instead of run-to-run allocation variance.
 
 A web studio (studio + compare pages) streams generations over SSE and renders the
 metrics side by side; `scripts/bench.py` produces the percentile tables.
 
-<p align="right"><a href="#readme-top">back to top</a></p>
+[back to top](#readme-top)
 
 ---
 
@@ -136,15 +126,19 @@ flowchart TB
     pod -->|"p50 / p95 / p99"| bench
 ```
 
+
+
 ### Two planes
 
 The service picks its backend at startup, so the exact same product runs with or
 without a GPU:
 
-| Plane | When | Backend | GPU |
-| --- | --- | --- | --- |
+
+| Plane    | When                        | Backend                                       | GPU  |
+| -------- | --------------------------- | --------------------------------------------- | ---- |
 | **demo** | no CUDA, or `STUDIO_DEMO=1` | seeded procedural renderer, simulated metrics | none |
-| **real** | CUDA + TensorRT present | prebuilt TRT engines, measured metrics | yes |
+| **real** | CUDA + TensorRT present     | prebuilt TRT engines, measured metrics        | yes  |
+
 
 The demo plane makes the whole frontend exercisable in local dev and CI; its
 metrics are derived from the registry and clearly logged as simulated. The backend
@@ -160,6 +154,8 @@ stateDiagram-v2
     Demo --> [*]
     TensorRT --> [*]
 ```
+
+
 
 ### Serving
 
@@ -200,12 +196,21 @@ sequenceDiagram
     B-->>C: SSE done {imageUrl (base64), metrics}
 ```
 
+
+
 ### Build pipeline
 
-`pipelines/` turns the base checkpoint into the servable engines (the **build**
-lane of the diagram above). This is offline and **not** latency-critical, so it
-can run anywhere with a GPU. `build_flow.py` (Metaflow) orchestrates
-train-LoRA → build → benchmark; `modal_app.py`
+`pipelines/` turns the base checkpoint into the servable engines. This is offline
+and **not** latency-critical, so it can run anywhere with a GPU:
+
+```
+HF weights ──▶ ONNX export ──▶ TensorRT engine ──▶ publish to S3
+   (once)      build_engines.py    (fp16/int8/fp8)      │
+                                                         ▼
+                                     serving pod syncs bundles → /engines
+```
+
+`build_flow.py` (Metaflow) orchestrates train-LoRA → build → benchmark; `modal_app.py`
 runs the same on serverless Modal GPUs. Only the UNet is quantised; the VAE (fp16-fix)
 and text encoders stay FP16.
 
@@ -217,7 +222,7 @@ and it's reached over a ClusterIP service — port-forwarded for benchmarking, o
 fronted by the ALB + TLS ingress (`infra/ingress.yaml`) for a public domain. One
 dedicated card = reproducible latency. The web app is hosted separately on Vercel.
 
-<p align="right"><a href="#readme-top">back to top</a></p>
+[back to top](#readme-top)
 
 ---
 
@@ -227,19 +232,21 @@ The precision × style matrix served by `GET /variants`. Numbers are the target
 tradeoff on a single L40S (the build flow measures and syncs them into
 `inference/variants.yaml`):
 
-| Variant | Precision | Style | Size | Peak VRAM | Throughput | Quality | Status |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| FP16 · Base | FP16 | Base | 13.0 GB | 18.4 GB | 7.8 it/s | 98 | ✅ validated |
-| FP16 · LoRA | FP16 | LoRA | 13.2 GB | 18.7 GB | 7.6 it/s | 97 | ✅ validated |
-| INT8 · Base | INT8 | Base | 7.1 GB | 11.2 GB | 12.6 it/s | 95 | 🚧 calibration WIP |
-| FP8 · Base | FP8 | Base | 6.6 GB | 9.6 GB | 16.4 it/s | 92 | 🚧 needs ModelOpt |
-| FP8 · LoRA | FP8 | LoRA | 6.8 GB | 9.9 GB | 15.8 it/s | 90 | 🚧 needs ModelOpt |
+
+| Variant     | Precision | Style | Size    | Peak VRAM | Throughput | Quality | Status             |
+| ----------- | --------- | ----- | ------- | --------- | ---------- | ------- | ------------------ |
+| FP16 · Base | FP16      | Base  | 13.0 GB | 18.4 GB   | 7.8 it/s   | 98      | ✅ validated        |
+| FP16 · LoRA | FP16      | LoRA  | 13.2 GB | 18.7 GB   | 7.6 it/s   | 97      | ✅ validated        |
+| INT8 · Base | INT8      | Base  | 7.1 GB  | 11.2 GB   | 12.6 it/s  | 95      | 🚧 calibration WIP |
+| FP8 · Base  | FP8       | Base  | 6.6 GB  | 9.6 GB    | 16.4 it/s  | 92      | 🚧 needs ModelOpt  |
+| FP8 · LoRA  | FP8       | LoRA  | 6.8 GB  | 9.9 GB    | 15.8 it/s  | 90      | 🚧 needs ModelOpt  |
+
 
 > [!NOTE]
 > Only the UNet is quantised; the VAE and text encoders stay FP16. `quality` is a
 > CLIP image-text score normalised against FP16 — i.e. *fidelity retained vs FP16*.
 
-<p align="right"><a href="#readme-top">back to top</a></p>
+[back to top](#readme-top)
 
 ---
 
@@ -280,7 +287,7 @@ cd inference && STUDIO_DEMO=1 pytest -q     # API + smoke tests (demo plane)
 cd web && pnpm lint && pnpm build           # lint + typecheck + build
 ```
 
-<p align="right"><a href="#readme-top">back to top</a></p>
+[back to top](#readme-top)
 
 ---
 
@@ -314,7 +321,7 @@ To train your own, add instance images under `pipelines/data/<name>/` (see
 > The build-time TensorRT version **must match** the serving runtime (both 10.3),
 > since `.plan` engines aren't portable across major versions.
 
-<p align="right"><a href="#readme-top">back to top</a></p>
+[back to top](#readme-top)
 
 ---
 
@@ -322,7 +329,7 @@ To train your own, add instance images under `pipelines/data/<name>/` (see
 
 Serving runs on **EKS Auto Mode** for pinned, reproducible latency. CI builds the
 inference image, pushes to ECR, and rolls out the deployment. Full bring-up is in
-[`infra/README.md`](infra/README.md); the essentials:
+`[infra/README.md](infra/README.md)`; the essentials:
 
 ```bash
 # 1. GPU node (Auto Mode NodePool) + the inference ServiceAccount
@@ -348,7 +355,7 @@ git push
 `eksctl-cluster.yaml` + `bootstrap.sh` are an alternative managed-nodegroup path if
 you're not on Auto Mode.
 
-<p align="right"><a href="#readme-top">back to top</a></p>
+[back to top](#readme-top)
 
 ---
 
@@ -374,47 +381,13 @@ stream. Read the **denoise** columns for hardware-clean numbers — `wall` inclu
 network (port-forward adds jitter; run from inside the VPC for a clean wall-clock).
 `scripts/generate.py` is a one-shot generate-and-save for a quick endpoint check.
 
-<p align="right"><a href="#readme-top">back to top</a></p>
-
----
-
-## Repository layout
-
-```text
-ptq-gpu/
-├── web/                      # Next.js studio + compare pages (hosted on Vercel)
-├── inference/                # FastAPI service — serves prebuilt TensorRT engines (HF-free)
-│   ├── main.py               #   /generate (SSE), /variants, /healthz
-│   ├── pipelines.py          #   TensorRTBackend (engine LRU cache) + DemoBackend
-│   ├── trt_runtime.py        #   TRT engine exec + vendored Euler scheduler + tokenizers
-│   ├── metrics.py            #   latency / VRAM helpers
-│   └── variants.yaml         #   FP16 / INT8 / FP8 × Base / LoRA
-├── pipelines/                # offline engine build (needs a GPU; not latency-critical)
-│   ├── build_engines.py      #   SDXL → ONNX → TensorRT engine → publish to S3
-│   ├── build_flow.py         #   Metaflow orchestration (train → build → benchmark)
-│   ├── train_lora.py         #   DreamBooth-LoRA (fused into the engine at build)
-│   ├── modal_app.py          #   run the build (or a test serve) on serverless Modal
-│   └── fetch_lora.sh         #   grab a pre-trained LoRA (skip training)
-├── scripts/
-│   ├── bench.py              #   latency benchmark — p50/p95/p99 per variant
-│   └── generate.py           #   one-shot generate + save image (endpoint smoke test)
-├── infra/                    # EKS (Auto Mode) serving
-│   ├── k8s/                  #   namespace, gpu-nodepool, inference deploy/service/hpa
-│   ├── aws/                  #   IAM policy docs for Pod Identity (S3 read)
-│   ├── ingress.yaml          #   ALB + TLS (apply once you have a domain/cert)
-│   ├── bootstrap.sh          #   metrics-server / ALB controller (non-Auto-Mode)
-│   └── eksctl-cluster.yaml   #   managed-nodegroup cluster (alternative to Auto Mode)
-├── .github/workflows/ci.yml  # test → build inference image → push ECR → deploy EKS
-└── docker/                   # Dockerfile.web, Dockerfile.inference, compose (local demo)
-```
-
-<p align="right"><a href="#readme-top">back to top</a></p>
+[back to top](#readme-top)
 
 ---
 
 ## License
 
-Distributed under the MIT License. See [`LICENSE`](LICENSE) for details.
+Distributed under the MIT License. See `[LICENSE](LICENSE)` for details.
 
 ## Authors
 
@@ -426,4 +399,4 @@ Distributed under the MIT License. See [`LICENSE`](LICENSE) for details.
 - [TensorRT](https://developer.nvidia.com/tensorrt) · [diffusers](https://github.com/huggingface/diffusers) · [FastAPI](https://fastapi.tiangolo.com/) · [Next.js](https://nextjs.org/) · [Modal](https://modal.com/)
 - [sdxl-vae-fp16-fix](https://huggingface.co/madebyollin/sdxl-vae-fp16-fix) · Cyberpunk SDXL LoRA — [issaccyj/lora-sdxl-cyberpunk](https://huggingface.co/issaccyj/lora-sdxl-cyberpunk)
 
-<p align="right"><a href="#readme-top">back to top</a></p>
+[back to top](#readme-top)
