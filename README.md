@@ -84,6 +84,58 @@ metrics side by side; `scripts/bench.py` produces the percentile tables.
 
 ## How it works
 
+The system is four stages — **build** engines offline, **deploy** the image via
+CI/CD, **serve** on a pinned GPU, and **benchmark**:
+
+```mermaid
+flowchart TB
+    subgraph build["Build pipeline — offline, GPU (Modal or GPU box), orchestrated by build_flow.py"]
+        direction TB
+        hf["SDXL 1.0 weights (Hugging Face)"]
+        lora["LoRA .safetensors<br/>(trained or fetched)"]
+        fuseLora["fuse LoRA into UNet<br/>(fuse_lora)"]
+        onnx["export ONNX<br/>text_encoder x2 · unet · vae_decoder"]
+        trt["build TensorRT engines<br/>fp16 · int8 (calibrated) · fp8"]
+        bundle["bundle: .plan x4 + tokenizers + metadata"]
+        s3[("S3<br/>engine bundles")]
+
+        hf --> fuseLora
+        lora -. optional .-> fuseLora
+        fuseLora --> onnx --> trt --> bundle --> s3
+    end
+
+    subgraph deploy["Deploy pipeline — CI/CD (.github/workflows/ci.yml)"]
+        direction TB
+        push["git push (main)"]
+        test["test: pytest (demo plane) + web lint/build"]
+        image["build Dockerfile.inference (TRT 10.3)"]
+        ecr[("ECR<br/>inference image")]
+        rollout["kubectl set image + rollout"]
+
+        push --> test --> image --> ecr --> rollout
+    end
+
+    subgraph serve["Serve pipeline — EKS Auto Mode, one GPU node"]
+        direction TB
+        init["init container: aws s3 sync to /engines"]
+        pod["inference pod<br/>FastAPI + TensorRTBackend"]
+
+        init --> pod
+    end
+
+    subgraph clients["Clients"]
+        direction TB
+        web["Web studio (Vercel)"]
+        bench["scripts/bench.py"]
+    end
+
+    s3 --> init
+    rollout --> pod
+    web -->|"POST /generate (SSE)"| pod
+    bench -->|"N requests @ concurrency"| pod
+    pod -->|"p50 / p95 / p99"| bench
+```
+
 ### Two planes
 
 The service picks its backend at startup, so the exact same product runs with or
@@ -95,7 +147,19 @@ without a GPU:
 | **real** | CUDA + TensorRT present | prebuilt TRT engines, measured metrics | yes |
 
 The demo plane makes the whole frontend exercisable in local dev and CI; its
-metrics are derived from the registry and clearly logged as simulated.
+metrics are derived from the registry and clearly logged as simulated. The backend
+is chosen once at startup:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Startup
+    Startup --> Demo: STUDIO_DEMO=1<br/>or no CUDA<br/>or no TensorRT
+    Startup --> TensorRT: CUDA + TensorRT present
+    Demo: DemoBackend<br/>(procedural image, simulated metrics)
+    TensorRT: TensorRTBackend<br/>(prebuilt engines, measured metrics)
+    Demo --> [*]
+    TensorRT --> [*]
+```
 
 ### Serving
 
@@ -104,21 +168,44 @@ metrics are derived from the registry and clearly logged as simulated.
 engine bundles hot in VRAM (`max_resident`), runs the denoise loop, and measures
 cold-load / denoise / VAE latency, throughput, and peak VRAM around the real work.
 Engine bundles are synced from S3 into the pod by an init container — nothing is
-downloaded from Hugging Face at request time.
+downloaded from Hugging Face at request time. A single `POST /generate` on the
+real plane flows like this:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client (web / bench.py)
+    participant API as FastAPI (main.py)
+    participant B as TensorRTBackend
+    participant E as TRT engines (VRAM)
+    participant S as EulerScheduler
+
+    C->>API: POST /generate {prompt, variantId, steps}
+    API->>B: run(params, emit)
+    B->>B: _ensure_loaded(variant) - LRU, cold-load .plan from /engines
+    B-->>C: SSE status: load
+    B->>E: text_encoder x2 (tokenized prompt + negative)
+    E-->>B: prompt_embeds + pooled
+    B-->>C: SSE status: denoise
+    loop for each step
+        B->>S: scale_model_input(latents)
+        B->>E: unet(sample, t, embeds) - CFG, batch 2
+        E-->>B: noise_pred
+        B->>S: step() -> latents
+        B-->>C: SSE progress {step, totalSteps}
+    end
+    B-->>C: SSE status: decode
+    B->>E: vae_decoder(latents / scale)
+    E-->>B: image tensor [-1, 1]
+    B-->>C: SSE done {imageUrl (base64), metrics}
+```
 
 ### Build pipeline
 
-`pipelines/` turns the base checkpoint into the servable engines. This is offline
-and **not** latency-critical, so it can run anywhere with a GPU:
-
-```
-HF weights ──▶ ONNX export ──▶ TensorRT engine ──▶ publish to S3
-   (once)      build_engines.py    (fp16/int8/fp8)      │
-                                                         ▼
-                                     serving pod syncs bundles → /engines
-```
-
-`build_flow.py` (Metaflow) orchestrates train-LoRA → build → benchmark; `modal_app.py`
+`pipelines/` turns the base checkpoint into the servable engines (the **build**
+lane of the diagram above). This is offline and **not** latency-critical, so it
+can run anywhere with a GPU. `build_flow.py` (Metaflow) orchestrates
+train-LoRA → build → benchmark; `modal_app.py`
 runs the same on serverless Modal GPUs. Only the UNet is quantised; the VAE (fp16-fix)
 and text encoders stay FP16.
 
