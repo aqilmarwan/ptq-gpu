@@ -203,11 +203,12 @@ sequenceDiagram
 `pipelines/` turns the base checkpoint into the servable engines. This is offline
 and **not** latency-critical, so it can run anywhere with a GPU:
 
-```
-HF weights ──▶ ONNX export ──▶ TensorRT engine ──▶ publish to S3
-   (once)      build_engines.py    (fp16/int8/fp8)      │
-                                                         ▼
-                                     serving pod syncs bundles → /engines
+```mermaid
+flowchart LR
+    hf["HF weights<br/>(once)"] --> onnx["ONNX export<br/>build_engines.py"]
+    onnx --> trt["TensorRT engine<br/>fp16 / int8 / fp8"]
+    trt --> s3[("publish to S3")]
+    s3 --> sync["serving pod syncs<br/>bundles to /engines"]
 ```
 
 `build_flow.py` (Metaflow) orchestrates train-LoRA → build → benchmark; `modal_app.py`
