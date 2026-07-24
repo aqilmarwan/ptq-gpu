@@ -5,12 +5,12 @@ Usage:
     python3 scripts/generate.py <base-url> [prompt] [variant]
 
 Example:
-    python3 scripts/generate.py https://mrwndevs--ptq-gpu-build-serve.modal.run
-    python3 scripts/generate.py https://...modal.run "a lighthouse at dusk" int8-base
+    python3 scripts/generate.py http://localhost:8000
+    python3 scripts/generate.py http://localhost:8000 "a lighthouse at dusk" int8-base
 
-Stdlib only. Polls /healthz first because a freshly-deployed Modal container
-syncs the engines from S3 on startup (a few minutes, cross-region) and returns
-redirects until it's ready -- polling health sidesteps both the hang and the 302s.
+Stdlib only. Polls /healthz first because a freshly-deployed pod syncs its engines
+from S3 on startup (the init container) and isn't ready until that finishes --
+polling health sidesteps a hang on the first request during that window.
 """
 
 import base64
