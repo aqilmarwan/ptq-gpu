@@ -24,33 +24,14 @@ pip install -r pipelines/requirements.txt
 # laptop / CI — simulated, no GPU, does not touch variants.yaml
 python pipelines/build_flow.py run --demo
 
-# real GPU box — build, benchmark, and write measured metrics back
+# real GPU box (EC2 GPU, or a Job on the EKS GPU node) — build + publish to S3
 pip install -r inference/requirements.txt -r inference/requirements-gpu.txt
-python pipelines/build_flow.py run --trials 5 --sync
+python pipelines/build_flow.py run --trials 5 --sync --engine-s3 s3://<bucket>
 ```
 
-### On Modal (serverless GPU — no box to manage)
-
-`modal_app.py` runs the same `train_lora` + `build_engines` on an on-demand L40S
-and publishes engines straight to S3. Only the Modal client is needed locally.
-
-```bash
-pip install modal && modal setup
-modal secret create aws AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_DEFAULT_REGION=ap-southeast-5
-modal volume create ptq-gpu-artifacts
-
-# Skip training: grab a pre-trained LoRA, push it to the volume, build everything.
-./pipelines/fetch_lora.sh
-modal volume put ptq-gpu-artifacts inference/loras/neon-atlas.safetensors loras/neon-atlas.safetensors
-modal run pipelines/modal_app.py --s3-uri s3://quant-studio-engine-bucket --skip-train
-
-# Or validate one variant first:
-modal run pipelines/modal_app.py --s3-uri s3://... --skip-train --only fp16-base
-```
-
-`--skip-train` skips the training step but still builds **all** variants,
-including the LoRA ones, from the fetched weights. To train the LoRA yourself
-instead, upload instance images (`pipelines/data/`) and drop `--skip-train`.
+To skip training and reuse a pre-trained LoRA, grab one with
+`./pipelines/fetch_lora.sh` before building. To train your own, add instance
+images under `pipelines/data/` (see `pipelines/data/README.md`).
 
 ## Outputs
 
