@@ -6,9 +6,6 @@
 #
 #   ./pipelines/fetch_lora.sh                       # default cyberpunk LoRA
 #   ./pipelines/fetch_lora.sh <hf-repo> <filename>  # any diffusers LoRA repo
-#
-# For the Modal build, push it to the shared volume afterwards:
-#   modal volume put ptq-gpu-artifacts inference/loras/neon-atlas.safetensors loras/neon-atlas.safetensors
 set -euo pipefail
 
 REPO="${1:-issaccyj/lora-sdxl-cyberpunk}"
