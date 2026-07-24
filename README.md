@@ -79,7 +79,7 @@ CI/CD, **serve** on a pinned GPU, and **benchmark**:
 
 ```mermaid
 flowchart TB
-    subgraph build["Build pipeline — offline, GPU (Modal or GPU box), orchestrated by build_flow.py"]
+    subgraph build["Build pipeline — offline, GPU box / EC2, orchestrated by build_flow.py"]
         direction TB
         hf["SDXL 1.0 weights (Hugging Face)"]
         lora["LoRA .safetensors<br/>(trained or fetched)"]
@@ -211,9 +211,8 @@ flowchart LR
     s3 --> sync["serving pod syncs<br/>bundles to /engines"]
 ```
 
-`build_flow.py` (Metaflow) orchestrates train-LoRA → build → benchmark; `modal_app.py`
-runs the same on serverless Modal GPUs. Only the UNet is quantised; the VAE (fp16-fix)
-and text encoders stay FP16.
+`build_flow.py` (Metaflow + Ray) orchestrates train-LoRA → build → benchmark on any
+CUDA GPU. Only the UNet is quantised; the VAE (fp16-fix) and text encoders stay FP16.
 
 ### Infrastructure
 
@@ -294,23 +293,14 @@ cd web && pnpm lint && pnpm build           # lint + typecheck + build
 
 ## Building engines
 
-Build the engines once on any GPU (an L40S for FP8), publish to S3, then point the
-serving pod at the bucket. Building isn't latency-sensitive, so serverless Modal is
-the easiest path:
-
-```bash
-pip install modal && modal setup
-modal secret create aws AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_DEFAULT_REGION=<region>
-
-# validate one variant, then build the rest (publishes .plan bundles to S3)
-modal run pipelines/modal_app.py --s3-uri s3://<bucket> --skip-train --only fp16-base
-modal run pipelines/modal_app.py --s3-uri s3://<bucket> --skip-train
-```
-
-Or on a self-managed GPU box:
+Build the engines once on a GPU box (an EC2 GPU instance, or a Job on the EKS GPU
+node), publish to S3, then point the serving pod at the bucket. Building isn't
+latency-sensitive, so any CUDA GPU works:
 
 ```bash
 pip install -r pipelines/requirements.txt -r inference/requirements.txt -r inference/requirements-gpu.txt
+
+# build every variant, publish .plan bundles to S3, sync measured metrics back
 python pipelines/build_flow.py run --sync --engine-s3 s3://<bucket>
 ```
 
@@ -397,7 +387,7 @@ Distributed under the MIT License. See `[LICENSE](LICENSE)` for details.
 ## Credits
 
 - [Stable Diffusion XL](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0) — Stability AI
-- [TensorRT](https://developer.nvidia.com/tensorrt) · [diffusers](https://github.com/huggingface/diffusers) · [FastAPI](https://fastapi.tiangolo.com/) · [Next.js](https://nextjs.org/) · [Modal](https://modal.com/)
+- [TensorRT](https://developer.nvidia.com/tensorrt) · [diffusers](https://github.com/huggingface/diffusers) · [FastAPI](https://fastapi.tiangolo.com/) · [Next.js](https://nextjs.org/)
 - [sdxl-vae-fp16-fix](https://huggingface.co/madebyollin/sdxl-vae-fp16-fix) · Cyberpunk SDXL LoRA — [issaccyj/lora-sdxl-cyberpunk](https://huggingface.co/issaccyj/lora-sdxl-cyberpunk)
 
 [back to top](#readme-top)
