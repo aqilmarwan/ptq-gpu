@@ -384,7 +384,8 @@ class Registry:
         path = Path(variants_file or config.VARIANTS_FILE)
         doc = yaml.safe_load(path.read_text())
 
-        max_resident = int(doc.get("max_resident", 2))
+        # config.MAX_RESIDENT (env) overrides the YAML — set it to 1 on a 24GB card.
+        max_resident = config.MAX_RESIDENT or int(doc.get("max_resident", 2))
         # `base_model` is the HF id used to build engines; the UI shows base_label.
         base = doc.get("base_label", "SDXL 1.0")
 

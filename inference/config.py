@@ -54,3 +54,7 @@ CORS_ORIGINS: list[str] = _list(
 # Generation guard-rails (also clamped per-request).
 MAX_STEPS: int = int(os.getenv("STUDIO_MAX_STEPS", "60"))
 MAX_DIM: int = int(os.getenv("STUDIO_MAX_DIM", "1024"))
+
+# Override variants.yaml's `max_resident` (engine bundles kept hot in VRAM). Set to
+# 1 on a 24GB card (A10G/L4) so a second bundle can't OOM the GPU; None = use YAML.
+MAX_RESIDENT: int | None = int(os.getenv("STUDIO_MAX_RESIDENT")) if os.getenv("STUDIO_MAX_RESIDENT") else None
