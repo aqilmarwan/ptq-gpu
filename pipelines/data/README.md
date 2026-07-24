@@ -26,15 +26,12 @@ pipelines/data/
 
 ## How it's consumed
 
-- **Local / GPU box:** `train_lora.train()` reads `pipelines/data/<name>/`.
-- **Modal:** upload the whole folder to the shared volume first —
-  `modal volume put ptq-gpu-artifacts pipelines/data data` — then
-  `modal run pipelines/modal_app.py --s3-uri s3://<bucket>`.
+The build flow's `train` step (`train_lora.train()`) reads `pipelines/data/<name>/`
+on the GPU box before building the LoRA engines.
 
 ## If you don't provide images
 
 Nothing breaks. Training for that LoRA is skipped with a clear message, and the
 LoRA engine variants (`fp16-lora`, `fp8-lora`) simply aren't built — the base
-variants (`fp16-base`, `int8-base`, `fp8-base`) build fine on their own. Use
-`--skip-train` (Modal) or drop the LoRA variants from `variants.yaml` to build a
-clean base-only catalog.
+variants (`fp16-base`, `int8-base`, `fp8-base`) build fine on their own. Or drop
+the LoRA variants from `variants.yaml` to build a clean base-only catalog.
