@@ -51,6 +51,9 @@ spec:
               value: "https://ptq-gpu.vercel.com"
             - name: STUDIO_ENGINE_DIR
               value: /engines
+            # Keep 1 bundle hot — safe on a 24GB card (A10G/L4). Raise to 2 on L40S.
+            - name: STUDIO_MAX_RESIDENT
+              value: "1"
             # Surfaced for clear errors if a bundle is missing (init container fetches).
             - name: STUDIO_ENGINE_S3_URI
               value: "s3://quant-studio-engine-bucket"
